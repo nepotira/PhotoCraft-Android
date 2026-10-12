@@ -1,0 +1,80 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, android ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_PROFILE_RELEASE_LTO: "false"
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+
+jobs:
+  build-apk:
+    name: Build PhotoCraft Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/system-images || true
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configure Android NDK
+        run: |
+          NDK_DIR=$(ls -d $ANDROID_HOME/ndk/* 2>/dev/null | tail -n 1)
+          if [ -n "$NDK_DIR" ]; then
+            echo "ANDROID_NDK_ROOT=$NDK_DIR" >> $GITHUB_ENV
+            echo "NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+            echo "Using NDK at $NDK_DIR"
+          fi
+
+      - name: Set up Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-android-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-android-
+
+      - name: Install cargo-apk
+        run: |
+          if ! command -v cargo-apk &> /dev/null; then
+            cargo install cargo-apk --locked
+          fi
+
+      - name: Build PhotoCraft APK
+        run: |
+          cargo apk build --package photocraft-android --release --target aarch64-linux-android
+
+      - name: List Output Files
+        run: |
+          find target -name "*.apk" -ls
+
+      - name: Upload PhotoCraft APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: photocraft-android-apk
+          path: target/**/apk/*.apk
+          retention-days: 30
