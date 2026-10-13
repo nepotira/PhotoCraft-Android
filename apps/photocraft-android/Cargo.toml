@@ -22,6 +22,12 @@ target_sdk_version = 34
 [[package.metadata.android.uses_permission]]
 name = "android.permission.INTERNET"
 
+[package.metadata.android.signing.release]
+path = "release.keystore"
+keystore_password = "android"
+key_alias = "androidkey"
+key_password = "android"
+
 [lints.rust]
 unsafe_code = "allow"
 
