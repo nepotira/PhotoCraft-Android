@@ -1,7 +1,7 @@
 [package]
 name = "photocraft-android"
-description = "PhotoCraft Android v0.0.1 (based on upstream v0.8.2) by Nepo"
-version = "0.0.1"
+description = "PhotoCraft Android v0.1.1 (based on upstream v0.8.2) by Nepo"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 publish = false
@@ -15,6 +15,10 @@ package = "ai.storyteller.photocraft"
 apk_label = "PhotoCraft"
 build_targets = ["aarch64-linux-android"]
 resizeable_activity = true
+fullscreen = true
+theme = "@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
+version_code = 3
+version_name = "0.1.1-android"
 
 [package.metadata.android.sdk]
 min_sdk_version = 26
@@ -62,3 +66,4 @@ eframe = { workspace = true, default-features = false, features = ["wgpu", "andr
 winit = { version = "0.30", features = ["android-native-activity"] }
 log = { workspace = true }
 android_logger = "0.14"
+jni = "0.21"

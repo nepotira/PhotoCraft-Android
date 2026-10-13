@@ -66,9 +66,14 @@ jobs:
             cargo install cargo-apk --locked
           fi
 
-      - name: Generate Release Keystore
+      - name: Ensure Release Keystore
         run: |
-          keytool -genkey -v -keystore apps/photocraft-android/release.keystore -alias androidkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=PhotoCraft, OU=Dev, O=ArtCraft, L=Unknown, S=Unknown, C=US"
+          if [ ! -f apps/photocraft-android/release.keystore ]; then
+            echo "Generating fallback release keystore..."
+            keytool -genkey -v -keystore apps/photocraft-android/release.keystore -alias androidkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=PhotoCraft, OU=Nepo, O=ArtCraft, C=BR"
+          else
+            echo "Using persistent release keystore from repository."
+          fi
 
       - name: Build PhotoCraft APK
         run: |
