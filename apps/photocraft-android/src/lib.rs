@@ -5,6 +5,7 @@
 
 mod onboarding;
 
+use eframe::App as _;
 use onboarding::{OnboardingData, render_wizard};
 use photocraft_ui_egui::theme::ThemeKind;
 use photocraft_ui_egui::{PhotocraftApp, Services};
@@ -40,20 +41,32 @@ impl AndroidShell {
 }
 
 impl eframe::App for AndroidShell {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        // Enforce calibrated touch/DPI scale so elements fit the viewport
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         ctx.set_pixels_per_point(self.ui_scale);
+        if let AndroidState::Running(app) = &mut self.state {
+            app.logic(ctx, frame);
+        }
+    }
+
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if let AndroidState::Running(app) = &mut self.state {
+            app.raw_input_hook(ctx, raw_input);
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
 
         match &mut self.state {
             AndroidState::Onboarding(data) => {
-                render_wizard(ctx, data);
+                render_wizard(ui, data);
                 self.ui_scale = data.ui_scale;
 
                 if data.finished {
                     let session = self.session.take().unwrap_or_default();
                     let services = self.services.take().unwrap_or_default();
                     let mut app = PhotocraftApp::new(session, services);
-                    app.set_theme(ctx, ThemeKind::Pro);
+                    app.set_theme(&ctx, ThemeKind::Pro);
                     if let Some(rs) = self.wgpu_state.clone() {
                         app.set_wgpu(rs);
                     }
@@ -61,12 +74,11 @@ impl eframe::App for AndroidShell {
                 }
             }
             AndroidState::Running(app) => {
-                // Persistent top mobile bar with touch zoom controls and DeX helpers
-                egui::TopBottomPanel::top("android_mobile_bar").show(ctx, |ui| {
+                egui::Panel::top("android_mobile_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("🎨 PhotoCraft Android").small().strong());
                         ui.separator();
-                        ui.label(egui::RichText::new("Zoom da UI:").small());
+                        ui.label(egui::RichText::new("Escala:").small());
                         if ui.button("➖").clicked() && self.ui_scale > 0.5 {
                             self.ui_scale -= 0.05;
                         }
@@ -75,7 +87,7 @@ impl eframe::App for AndroidShell {
                             self.ui_scale += 0.05;
                         }
                         ui.separator();
-                        if ui.button(egui::RichText::new("⚙️ Configurar").small()).clicked() {
+                        if ui.button(egui::RichText::new("⚙️ Assistente").small()).clicked() {
                             let mut data = OnboardingData::default();
                             data.ui_scale = self.ui_scale;
                             data.storage_granted = true;
@@ -84,8 +96,7 @@ impl eframe::App for AndroidShell {
                     });
                 });
 
-                // Run main Photoshop/PhotoCraft interface
-                app.update(ctx, frame);
+                app.ui(ui, frame);
             }
         }
     }

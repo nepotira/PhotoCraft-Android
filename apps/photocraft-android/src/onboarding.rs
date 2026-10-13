@@ -2,7 +2,7 @@
 //!
 //! Port maintained by Nepo (@nepotira).
 
-use egui::{Color32, RichText, Ui, Vec2};
+use egui::{Color32, CornerRadius, Margin, RichText, Stroke, Ui, Vec2};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OnboardingStep {
@@ -33,18 +33,18 @@ impl Default for OnboardingData {
     }
 }
 
-pub fn render_wizard(ctx: &egui::Context, data: &mut OnboardingData) {
-    egui::CentralPanel::default().show(ctx, |ui| {
+pub fn render_wizard(ui: &mut egui::Ui, data: &mut OnboardingData) {
+    egui::CentralPanel::default().show(ui, |ui| {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(20.0);
 
                 // Main card container
-                egui::Frame::group(ui.style())
+                egui::Frame::NONE
                     .fill(Color32::from_rgb(26, 28, 34))
-                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(48, 54, 65)))
-                    .rounding(14.0)
-                    .inner_margin(24.0)
+                    .stroke(Stroke::new(1.0, Color32::from_rgb(48, 54, 65)))
+                    .corner_radius(CornerRadius::same(14))
+                    .inner_margin(Margin::same(24))
                     .show(ui, |ui| {
                         ui.set_max_width(520.0);
 
@@ -81,10 +81,10 @@ fn render_step_pill(ui: &mut Ui, label: &str, active: bool) {
         (Color32::from_rgb(38, 42, 50), Color32::from_rgb(150, 158, 175))
     };
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(bg)
-        .rounding(6.0)
-        .inner_margin(Vec2::new(8.0, 4.0))
+        .corner_radius(CornerRadius::same(6))
+        .inner_margin(Margin::symmetric(8, 4))
         .show(ui, |ui| {
             ui.label(RichText::new(label).color(text_col).size(12.0).strong());
         });
@@ -102,10 +102,10 @@ fn render_welcome(ui: &mut Ui, data: &mut OnboardingData) {
     );
 
     ui.add_space(14.0);
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgb(34, 38, 46))
-        .rounding(8.0)
-        .inner_margin(12.0)
+        .corner_radius(CornerRadius::same(8))
+        .inner_margin(Margin::same(12))
         .show(ui, |ui| {
             ui.label(RichText::new("✨ Destaques desta edição:").strong());
             ui.label("• 🖼️ Suporte nativo a camadas, máscaras e arquivos PSD reais");
