@@ -1,7 +1,7 @@
 [package]
 name = "photocraft-android"
-description = "PhotoCraft on Android (eframe NativeActivity runner)"
-version.workspace = true
+description = "PhotoCraft Android v0.0.1 (based on upstream v0.8.2) by Nepo"
+version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 publish = false
@@ -14,6 +14,7 @@ path = "src/lib.rs"
 package = "ai.storyteller.photocraft"
 apk_label = "PhotoCraft"
 build_targets = ["aarch64-linux-android"]
+resizeable_activity = true
 
 [package.metadata.android.sdk]
 min_sdk_version = 26
@@ -21,6 +22,21 @@ target_sdk_version = 34
 
 [[package.metadata.android.uses_permission]]
 name = "android.permission.INTERNET"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_MEDIA_IMAGES"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.POST_NOTIFICATIONS"
 
 [package.metadata.android.signing.release]
 path = "release.keystore"
