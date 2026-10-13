@@ -22,8 +22,12 @@ target_sdk_version = 34
 [[package.metadata.android.uses_permission]]
 name = "android.permission.INTERNET"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
 
 [dependencies]
 photocraft-engine = { workspace = true }
