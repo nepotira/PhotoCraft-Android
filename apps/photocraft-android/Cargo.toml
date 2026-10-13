@@ -16,9 +16,6 @@ apk_label = "PhotoCraft"
 build_targets = ["aarch64-linux-android"]
 resizeable_activity = true
 fullscreen = true
-theme = "@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
-version_code = 3
-version_name = "0.1.1-android"
 
 [package.metadata.android.sdk]
 min_sdk_version = 26

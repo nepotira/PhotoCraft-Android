@@ -63,7 +63,9 @@ Sempre que o usuário relatar erros ou comportamentos inesperados no chat, o ass
 
 ## 4. Estrutura do `Cargo.toml` para Cada Release
 
-Ao lançar uma nova versão, os seguintes campos em `apps/photocraft-android/Cargo.toml` devem ser sincronizados:
+O empacotador oficial `cargo-apk` deriva automaticamente o `versionCode` numérico e o `versionName` a partir do campo nativo `version` do Cargo sob `[package]`. **Não** declare `version_name` ou `version_code` sob `[package.metadata.android]`, pois o `cargo-apk` rejeita chaves manuais com pânico.
+
+Ao lançar uma nova versão, sincronize o campo `version` em `apps/photocraft-android/Cargo.toml`:
 
 ```toml
 [package]
@@ -73,6 +75,6 @@ version = "<MAJOR>.<MINOR>.<PATCH>" # Ex: "0.1.1"
 [package.metadata.android]
 package = "ai.storyteller.photocraft"
 apk_label = "PhotoCraft"
-version_code = <INTEGER>            # Ex: 3
-version_name = "<MAJOR>.<MINOR>.<PATCH>-android"
+fullscreen = true
+resizeable_activity = true
 ```
