@@ -2977,6 +2977,37 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         }
     }
 
+    // Multi-touch gestures (two-finger pinch to zoom, pan & rotate canvas, IbisPaint style):
+    let multi_touch = ctx.input(|i| i.multi_touch());
+    let is_multi_touch = multi_touch.as_ref().is_some_and(|m| m.num_touches >= 2);
+    if let Some(ref touch) = multi_touch {
+        if touch.num_touches >= 2 {
+            if app.drag.is_some() {
+                app.drag = None;
+                app.press_stroke = false;
+            }
+
+            if touch.translation_delta != egui::Vec2::ZERO {
+                let d = xf.unmap_vec(touch.translation_delta) / (view.zoom / ppp);
+                view.center[0] -= d.x;
+                view.center[1] -= d.y;
+            }
+
+            if touch.zoom_delta > 0.0 && touch.zoom_delta != 1.0 {
+                let nz = crate::zoom_levels::clamp(view.zoom * touch.zoom_delta, view.doc_size);
+                if nz != view.zoom {
+                    let at = wheel_anchor(&xf, touch.center_pos, view.doc_size);
+                    zoom_about(&mut view, &xf, at, nz, false, ppp);
+                }
+            }
+
+            if touch.rotation_delta != 0.0 && touch.rotation_delta.is_finite() {
+                let deg = touch.rotation_delta.to_degrees();
+                view.rotation = crate::rotate_view::wrap_deg(view.rotation + deg);
+            }
+        }
+    }
+
     // Pen pressure/tilt for this frame's tool events (mouse = 1.0), unless Preferences › Tools ›
     // Use Tablet Pressure is off; the pen's eraser end selects the Eraser.
     app.stylus.use_pressure = app.session.prefs().tools.use_tablet_pressure;
@@ -3225,6 +3256,13 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         if tool == Tool::Zoom && crate::zoom_tool::drag(app, &ctx, &mut view, &xf, &buttons, response.interact_pointer_pos()) {
             (buttons.started, buttons.dragged, buttons.stopped) = (false, false, false);
         }
+        // Suppress tool strokes during two-finger navigation
+        if is_multi_touch {
+            buttons.started = false;
+            buttons.dragged = false;
+            buttons.stopped = false;
+            buttons.clicked = false;
+        }
         // A drag is only recognised once the pointer has moved past egui's click distance: the
         // gesture starts where the button went down, not where it is now (#123).
         let gesture_active_before = app.drag.is_some();
@@ -3236,6 +3274,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // distance: the first dab shows at once. The drag recognised later continues that stroke,
         // and a click (or a long press that never moved) just ends it.
         if strokes_live(tool)
+            && !is_multi_touch
             && app.drag.is_none()
             && response.is_pointer_button_down_on()
             && ui.input(|i| i.pointer.primary_pressed())

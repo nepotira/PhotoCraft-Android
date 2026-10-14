@@ -1,7 +1,7 @@
 //! Onboarding wizard for PhotoCraft Android (Nintendo Switch emulator-style flow).
 //!
 //! Port maintained by Nepo (@nepotira).
-//! Version: 0.1.1-android
+//! Version: 0.1.2-android
 
 use egui::{Color32, CornerRadius, Margin, RichText, Stroke, Ui, Vec2};
 
@@ -20,7 +20,6 @@ pub enum OnboardingAction {
 pub struct OnboardingData {
     pub step: OnboardingStep,
     pub permissions_requested: bool,
-    pub notifications_requested: bool,
     pub dex_mode: bool,
     pub zoom_factor: f32,
     pub finished: bool,
@@ -31,7 +30,6 @@ impl Default for OnboardingData {
         Self {
             step: OnboardingStep::Welcome,
             permissions_requested: false,
-            notifications_requested: false,
             dex_mode: true,
             zoom_factor: 1.0,
             finished: false,
@@ -39,7 +37,11 @@ impl Default for OnboardingData {
     }
 }
 
-pub fn render_wizard(ui: &mut egui::Ui, data: &mut OnboardingData) -> Option<OnboardingAction> {
+pub fn render_wizard(
+    ui: &mut egui::Ui,
+    data: &mut OnboardingData,
+    is_storage_granted: bool,
+) -> Option<OnboardingAction> {
     let mut triggered_action = None;
 
     egui::CentralPanel::default().show(ui, |ui| {
@@ -62,9 +64,9 @@ pub fn render_wizard(ui: &mut egui::Ui, data: &mut OnboardingData) -> Option<Onb
                         // Header badges / indicators
                         ui.horizontal_wrapped(|ui| {
                             render_step_pill(ui, "1. Boas-Vindas", data.step == OnboardingStep::Welcome);
-                            ui.label(RichText::new("➔").color(Color32::GRAY));
+                            ui.label(RichText::new(">").color(Color32::GRAY).strong());
                             render_step_pill(ui, "2. Permissões", data.step == OnboardingStep::Permissions);
-                            ui.label(RichText::new("➔").color(Color32::GRAY));
+                            ui.label(RichText::new(">").color(Color32::GRAY).strong());
                             render_step_pill(ui, "3. Escala & DeX", data.step == OnboardingStep::DisplayAndDex);
                         });
 
@@ -75,7 +77,7 @@ pub fn render_wizard(ui: &mut egui::Ui, data: &mut OnboardingData) -> Option<Onb
                         match data.step {
                             OnboardingStep::Welcome => render_welcome(ui, data),
                             OnboardingStep::Permissions => {
-                                if let Some(action) = render_permissions(ui, data) {
+                                if let Some(action) = render_permissions(ui, data, is_storage_granted) {
                                     triggered_action = Some(action);
                                 }
                             }
@@ -108,9 +110,9 @@ fn render_step_pill(ui: &mut Ui, label: &str, active: bool) {
 }
 
 fn render_welcome(ui: &mut Ui, data: &mut OnboardingData) {
-    ui.heading(RichText::new("🎨 PhotoCraft Android").size(20.0).strong());
+    ui.heading(RichText::new("PhotoCraft Android").size(20.0).strong());
     ui.label(
-        RichText::new("Versão v0.1.1-android (Base upstream v0.8.2)")
+        RichText::new("Versão v0.1.2-android (Base upstream v0.8.2)")
             .color(Color32::from_rgb(156, 163, 175))
             .size(12.0),
     );
@@ -118,7 +120,7 @@ fn render_welcome(ui: &mut Ui, data: &mut OnboardingData) {
     ui.add_space(12.0);
     ui.label(
         "Suíte criativa profissional de edição de imagens em Rust. \
-        Port oficial para Android mantido por Nepo com suporte nativo a touch e Samsung DeX.",
+        Port oficial para Android mantido por Nepo com suporte nativo a touch, gestos multitoque e Samsung DeX.",
     );
 
     ui.add_space(12.0);
@@ -127,15 +129,16 @@ fn render_welcome(ui: &mut Ui, data: &mut OnboardingData) {
         .corner_radius(CornerRadius::same(8))
         .inner_margin(Margin::same(12))
         .show(ui, |ui| {
-            ui.label(RichText::new("✨ Destaques desta versão:").strong());
-            ui.label("• 🖼️ Suporte completo a camadas, máscaras e arquivos PSD reais");
-            ui.label("• 📱 Tela cheia imersiva sem sobreposição de barras do sistema");
-            ui.label("• 🖥️ Janelas livres e redimensionáveis no Samsung DeX");
-            ui.label("• ⚡ Aceleração gráfica nativa por GPU (WGPU / Vulkan)");
+            ui.label(RichText::new("Destaques desta versão:").strong());
+            ui.label("• Suporte completo a camadas, máscaras e arquivos PSD reais");
+            ui.label("• Gestos multitoque: pinça com dois dedos para zoom e pan livre");
+            ui.label("• Modo tela cheia imersivo sem barras de notificação");
+            ui.label("• Janelas livres e redimensionáveis no Samsung DeX");
+            ui.label("• Aceleração gráfica nativa por GPU (WGPU / Vulkan)");
         });
 
     ui.add_space(18.0);
-    let next_btn = egui::Button::new(RichText::new("Próximo: Permissões ➔").size(14.0).strong())
+    let next_btn = egui::Button::new(RichText::new("Próximo: Permissões >").size(14.0).strong())
         .min_size(Vec2::new(ui.available_width(), 44.0))
         .fill(Color32::from_rgb(59, 130, 246));
 
@@ -144,38 +147,38 @@ fn render_welcome(ui: &mut Ui, data: &mut OnboardingData) {
     }
 }
 
-fn render_permissions(ui: &mut Ui, data: &mut OnboardingData) -> Option<OnboardingAction> {
+fn render_permissions(
+    ui: &mut Ui,
+    data: &mut OnboardingData,
+    is_storage_granted: bool,
+) -> Option<OnboardingAction> {
     let mut action = None;
 
-    ui.heading(RichText::new("📁 Permissões de Armazenamento").size(19.0).strong());
+    ui.heading(RichText::new("Permissões de Armazenamento").size(19.0).strong());
     ui.add_space(6.0);
     ui.label(
-        "Para abrir suas fotos, editar PSDs e exportar trabalhos, o aplicativo precisa da sua autorização no Android.",
+        "Para abrir fotos, editar arquivos PSD e exportar trabalhos, o PhotoCraft precisa da sua autorização no Android.",
     );
 
     ui.add_space(14.0);
 
-    // Primary system permission request button (calls JNI requestPermissions)
-    let perm_btn_text = if data.permissions_requested {
-        "✓ Solicitação do Sistema Enviada"
+    // Dynamic Permission Status & Action Button
+    let (btn_text, btn_color) = if is_storage_granted {
+        ("[ V ] Permissão Concedida! Acesso Liberado", Color32::from_rgb(16, 185, 129))
+    } else if data.permissions_requested {
+        ("[ ! ] Permissão Pendente - Toque para Conceder Novamente", Color32::from_rgb(220, 38, 38))
     } else {
-        "🛡️ Solicitar Permissões do Android"
-    };
-
-    let perm_btn_color = if data.permissions_requested {
-        Color32::from_rgb(16, 185, 129)
-    } else {
-        Color32::from_rgb(59, 130, 246)
+        ("Solicitar Permissão do Android", Color32::from_rgb(59, 130, 246))
     };
 
     let req_btn = egui::Button::new(
-        RichText::new(perm_btn_text)
+        RichText::new(btn_text)
             .color(Color32::WHITE)
-            .size(14.0)
+            .size(13.5)
             .strong(),
     )
-    .fill(perm_btn_color)
-    .min_size(Vec2::new(ui.available_width(), 44.0));
+    .fill(btn_color)
+    .min_size(Vec2::new(ui.available_width(), 46.0));
 
     if ui.add(req_btn).clicked() {
         data.permissions_requested = true;
@@ -183,17 +186,25 @@ fn render_permissions(ui: &mut Ui, data: &mut OnboardingData) -> Option<Onboardi
     }
 
     ui.add_space(6.0);
-    ui.label(
-        RichText::new("Abre o diálogo nativo do Android para fotos, mídia e notificações.")
-            .color(Color32::from_rgb(156, 163, 175))
-            .size(11.0),
-    );
+    if is_storage_granted {
+        ui.label(
+            RichText::new("Status: O aplicativo tem permissão total para ler e salvar fotos e projetos.")
+                .color(Color32::from_rgb(16, 185, 129))
+                .size(11.5),
+        );
+    } else {
+        ui.label(
+            RichText::new("Status: Permissão ainda não autorizada pelo sistema.")
+                .color(Color32::from_rgb(239, 68, 68))
+                .size(11.5),
+        );
+    }
 
-    ui.add_space(10.0);
+    ui.add_space(12.0);
 
-    // Secondary button: Android 11+ All Files Access
+    // Fallback settings button
     let settings_btn = egui::Button::new(
-        RichText::new("📂 Acesso a Todos os Arquivos (Configurações)")
+        RichText::new("Abrir Configurações do Aplicativo")
             .size(13.0)
             .color(Color32::from_rgb(220, 225, 235)),
     )
@@ -206,7 +217,7 @@ fn render_permissions(ui: &mut Ui, data: &mut OnboardingData) -> Option<Onboardi
 
     ui.add_space(4.0);
     ui.label(
-        RichText::new("Opcional: abre a tela de gerenciamento de arquivos para acessar cartões SD e pastas completas.")
+        RichText::new("Caso tenha marcado 'Não perguntar novamente' ou o Android não mostre o diálogo, use este botão para conceder permissão manualmente.")
             .color(Color32::from_rgb(156, 163, 175))
             .size(11.0),
     );
@@ -214,7 +225,7 @@ fn render_permissions(ui: &mut Ui, data: &mut OnboardingData) -> Option<Onboardi
     ui.add_space(18.0);
     ui.horizontal(|ui| {
         if ui
-            .add(egui::Button::new("⬅ Voltar").min_size(Vec2::new(80.0, 38.0)))
+            .add(egui::Button::new("< Voltar").min_size(Vec2::new(80.0, 38.0)))
             .clicked()
         {
             data.step = OnboardingStep::Welcome;
@@ -222,7 +233,7 @@ fn render_permissions(ui: &mut Ui, data: &mut OnboardingData) -> Option<Onboardi
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let next_btn = egui::Button::new(
-                RichText::new("Próximo: Escala ➔")
+                RichText::new("Próximo: Escala >")
                     .size(14.0)
                     .strong(),
             )
@@ -239,7 +250,7 @@ fn render_permissions(ui: &mut Ui, data: &mut OnboardingData) -> Option<Onboardi
 }
 
 fn render_display_dex(ui: &mut Ui, data: &mut OnboardingData) {
-    ui.heading(RichText::new("📱 Escala e Samsung DeX").size(19.0).strong());
+    ui.heading(RichText::new("Escala e Samsung DeX").size(19.0).strong());
     ui.add_space(6.0);
     ui.label(
         "Ajuste a proporção dos menus e botões para que caibam confortavelmente na tela do seu dispositivo.",
@@ -272,7 +283,7 @@ fn render_display_dex(ui: &mut Ui, data: &mut OnboardingData) {
     ui.add_space(20.0);
     ui.horizontal(|ui| {
         if ui
-            .add(egui::Button::new("⬅ Voltar").min_size(Vec2::new(80.0, 42.0)))
+            .add(egui::Button::new("< Voltar").min_size(Vec2::new(80.0, 42.0)))
             .clicked()
         {
             data.step = OnboardingStep::Permissions;
@@ -280,7 +291,7 @@ fn render_display_dex(ui: &mut Ui, data: &mut OnboardingData) {
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let start_btn = egui::Button::new(
-                RichText::new("🚀 Abrir o PhotoCraft!")
+                RichText::new("Abrir o PhotoCraft!")
                     .color(Color32::WHITE)
                     .size(15.0)
                     .strong(),

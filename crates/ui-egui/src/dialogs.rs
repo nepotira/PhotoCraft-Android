@@ -179,37 +179,40 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let modal = show_modal(modal, ctx, id, web, interactive, |ui| {
             sizing = ui.is_sizing_pass();
             let available = ui.available_size();
-            ui.set_min_width(380.0);
+            let screen_w = (ctx.content_rect().width() - 24.0).max(300.0);
+            let screen_h = (ctx.content_rect().height() - 60.0).max(300.0);
+            let base_min = 380.0f32.min(screen_w);
+            ui.set_min_width(base_min);
             let wide = crate::prefs_ui::width(&d.fields, (ctx.content_rect().width() - 48.0).max(380.0));
             if let Some(w) = wide {
-                ui.set_min_width(w.min(460.0));
+                ui.set_min_width(w.min(460.0).min(screen_w));
             }
             if d.kind == DialogKind::NewDocument {
-                ui.set_min_width(800.0);
+                ui.set_min_width(800.0f32.min(screen_w));
             }
             // The About window: room for the contributor table, the same width on every tab.
             let about_tabs = d.kind == DialogKind::About && d.fields.get("systemInfo").and_then(Value::as_bool) != Some(true);
             if about_tabs {
-                ui.set_min_width(700.0);
+                ui.set_min_width(700.0f32.min(screen_w));
             }
             ui.set_max_width(wide.unwrap_or(if d.kind == DialogKind::NewDocument {
-                800.0
+                800.0f32.min(screen_w)
             } else if about_tabs {
-                700.0
+                700.0f32.min(screen_w)
             } else if d.kind == DialogKind::LayerStyle || d.fields.contains_key("__export") || crate::color_picker_ui::owns(&d.fields) {
-                600.0
+                600.0f32.min(screen_w)
             } else {
-                440.0
+                440.0f32.min(screen_w)
             }));
             if web {
                 ui.set_max_width(available.x);
                 ui.set_min_size(available);
             } else if let Some(w) = crate::file_ui::dialog_width(&d.fields) {
-                ui.set_min_width(w);
-                ui.set_max_width(w);
+                ui.set_min_width(w.min(screen_w));
+                ui.set_max_width(w.min(screen_w));
             }
             if color_picker {
-                ui.set_width(crate::color_picker_ui::CONTENT_WIDTH);
+                ui.set_width(crate::color_picker_ui::CONTENT_WIDTH.min(screen_w));
             }
             let label = egui::Label::new(egui::RichText::new(&title).font(crate::theme::semibold(15.0))).selectable(false);
             let t = if crate::color_picker_ui::owns(&fields) { ui.add_sized(egui::vec2(ui.available_width(), 22.0), label).rect } else { ui.add(label).rect };
@@ -223,9 +226,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             crate::field_tab::begin(ui.ctx());
             match d.kind {
                 DialogKind::NewDocument => {
-                    if crate::new_doc_ui::body(app, ui, &mut fields) {
-                        outcome = Some(true);
-                    }
+                    egui::ScrollArea::both()
+                        .max_height(screen_h - 100.0)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            if crate::new_doc_ui::body(app, ui, &mut fields) {
+                                outcome = Some(true);
+                            }
+                        });
                 }
                 DialogKind::About if fields.get("systemInfo").and_then(Value::as_bool) == Some(true) => {
                     let lines = crate::gpu_status::system_info_ui(app);

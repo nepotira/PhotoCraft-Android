@@ -1,10 +1,12 @@
 //! PhotoCraft on Android using eframe's NativeActivity runner.
 //!
 //! Port maintained by Nepo (@nepotira).
-//! Version: 0.1.1-android (based on PhotoCraft upstream v0.8.2).
+//! Version: 0.1.2-android (based on PhotoCraft upstream v0.8.2).
 
+mod file_picker;
 mod onboarding;
 
+use file_picker::FilePickerState;
 use jni::objects::{JObject, JValue};
 use onboarding::{OnboardingAction, OnboardingData, render_wizard};
 use photocraft_ui_egui::theme::ThemeKind;
@@ -15,6 +17,103 @@ use winit::platform::android::activity::AndroidApp;
 
 static ANDROID_VM: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static ANDROID_ACTIVITY: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+pub fn set_immersive_sticky() {
+    let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
+    let act_ptr = ANDROID_ACTIVITY.load(Ordering::SeqCst);
+    if vm_ptr.is_null() || act_ptr.is_null() {
+        return;
+    }
+
+    unsafe {
+        let vm = match jni::JavaVM::from_raw(vm_ptr.cast()) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+
+        let mut env = match vm.attach_current_thread() {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        let activity = JObject::from_raw(act_ptr as jni::sys::jobject);
+
+        let window_val = match env.call_method(&activity, "getWindow", "()Landroid/view/Window;", &[]) {
+            Ok(v) => match v.l() {
+                Ok(w) => w,
+                Err(_) => return,
+            },
+            Err(_) => return,
+        };
+
+        let decor_val = match env.call_method(&window_val, "getDecorView", "()Landroid/view/View;", &[]) {
+            Ok(v) => match v.l() {
+                Ok(d) => d,
+                Err(_) => return,
+            },
+            Err(_) => return,
+        };
+
+        // Combined flags for IMMERSIVE_STICKY fullscreen:
+        // LAYOUT_STABLE(256) | LAYOUT_HIDE_NAV(512) | LAYOUT_FULLSCREEN(1024)
+        // | HIDE_NAV(2) | FULLSCREEN(4) | IMMERSIVE_STICKY(4096) = 5894
+        let flags: i32 = 5894;
+
+        let _ = env.call_method(&decor_val, "setSystemUiVisibility", "(I)V", &[JValue::Int(flags)]);
+        let _ = env.call_method(&window_val, "addFlags", "(I)V", &[JValue::Int(1024)]);
+    }
+}
+
+pub fn has_storage_permission() -> bool {
+    let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
+    let act_ptr = ANDROID_ACTIVITY.load(Ordering::SeqCst);
+    if vm_ptr.is_null() || act_ptr.is_null() {
+        return false;
+    }
+
+    unsafe {
+        let vm = match jni::JavaVM::from_raw(vm_ptr.cast()) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+
+        let mut env = match vm.attach_current_thread() {
+            Ok(e) => e,
+            Err(_) => return false,
+        };
+
+        let activity = JObject::from_raw(act_ptr as jni::sys::jobject);
+
+        // Check Environment.isExternalStorageManager() on Android 11+
+        if let Ok(env_class) = env.find_class("android/os/Environment") {
+            if let Ok(res) = env.call_static_method(env_class, "isExternalStorageManager", "()Z", &[]) {
+                if let Ok(true) = res.z() {
+                    return true;
+                }
+            }
+        }
+
+        // Check READ_EXTERNAL_STORAGE
+        if let Ok(perm_str) = env.new_string("android.permission.READ_EXTERNAL_STORAGE") {
+            if let Ok(res) = env.call_method(&activity, "checkSelfPermission", "(Ljava/lang/String;)I", &[JValue::Object(&perm_str)]) {
+                if let Ok(0) = res.i() {
+                    return true;
+                }
+            }
+        }
+
+        // Check READ_MEDIA_IMAGES (Android 13+)
+        if let Ok(perm_str) = env.new_string("android.permission.READ_MEDIA_IMAGES") {
+            if let Ok(res) = env.call_method(&activity, "checkSelfPermission", "(Ljava/lang/String;)I", &[JValue::Object(&perm_str)]) {
+                if let Ok(0) = res.i() {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+}
 
 pub fn request_android_permissions() {
     let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
@@ -202,14 +301,28 @@ struct AndroidShell {
     last_applied_zoom: f32,
     session: Option<photocraft_engine::Session>,
     services: Option<Services>,
+    file_picker: FilePickerState,
     wgpu_state: Option<eframe::egui_wgpu::RenderState>,
+    frames_since_immersive: u32,
 }
 
 impl AndroidShell {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         PhotocraftApp::setup_context(&cc.egui_ctx, ThemeKind::Pro);
+        cc.egui_ctx.style_mut(|s| {
+            s.interaction.drag_to_scroll = true;
+        });
+
         let session = photocraft_engine::Session::default();
-        let services = Services::default();
+        let mut services = Services::default();
+        let file_picker = FilePickerState::new();
+
+        let fp_clone = file_picker.clone();
+        services.file_dialog = Some(Box::new(move |request, _frame, reply| {
+            fp_clone.open_dialog(request, reply);
+        }));
+
+        set_immersive_sticky();
 
         Self {
             state: AndroidState::Onboarding(OnboardingData::default()),
@@ -217,7 +330,9 @@ impl AndroidShell {
             last_applied_zoom: 1.0,
             session: Some(session),
             services: Some(services),
+            file_picker,
             wgpu_state: cc.wgpu_render_state.clone(),
+            frames_since_immersive: 0,
         }
     }
 }
@@ -227,6 +342,11 @@ impl eframe::App for AndroidShell {
         if (self.zoom_factor - self.last_applied_zoom).abs() > 0.001 {
             ctx.set_zoom_factor(self.zoom_factor);
             self.last_applied_zoom = self.zoom_factor;
+        }
+
+        self.frames_since_immersive += 1;
+        if self.frames_since_immersive == 10 || self.frames_since_immersive == 120 {
+            set_immersive_sticky();
         }
 
         if let AndroidState::Running(app) = &mut self.state {
@@ -245,9 +365,11 @@ impl eframe::App for AndroidShell {
         let mut finish_onboarding = false;
         let mut switch_to_onboarding = false;
 
+        let storage_granted = has_storage_permission();
+
         match &mut self.state {
             AndroidState::Onboarding(data) => {
-                if let Some(action) = render_wizard(ui, data) {
+                if let Some(action) = render_wizard(ui, data, storage_granted) {
                     match action {
                         OnboardingAction::RequestSystemPermissions => {
                             request_android_permissions();
@@ -269,7 +391,7 @@ impl eframe::App for AndroidShell {
 
                 egui::Panel::top("android_mobile_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("🎨 PhotoCraft Android").small().strong());
+                        ui.label(egui::RichText::new("PhotoCraft Android").small().strong());
                         ui.separator();
                         ui.label(egui::RichText::new("Zoom:").small());
                         if ui.button("➖").clicked() && current_zoom > 0.6 {
@@ -280,7 +402,7 @@ impl eframe::App for AndroidShell {
                             zoom_delta += 0.05;
                         }
                         ui.separator();
-                        if ui.button(egui::RichText::new("⚙️ Assistente").small()).clicked() {
+                        if ui.button(egui::RichText::new("Assistente").small()).clicked() {
                             switch_to_onboarding = true;
                         }
                     });
@@ -294,6 +416,9 @@ impl eframe::App for AndroidShell {
             }
         }
 
+        // Always show in-app file picker modal if an Open or Save request is active
+        self.file_picker.ui(&ctx);
+
         if finish_onboarding {
             let session = self.session.take().unwrap_or_default();
             let services = self.services.take().unwrap_or_default();
@@ -303,11 +428,13 @@ impl eframe::App for AndroidShell {
                 app.set_wgpu(rs);
             }
             self.state = AndroidState::Running(Box::new(app));
+            set_immersive_sticky();
         } else if switch_to_onboarding {
             let mut data = OnboardingData::default();
             data.zoom_factor = self.zoom_factor;
-            data.permissions_requested = true;
+            data.permissions_requested = storage_granted;
             self.state = AndroidState::Onboarding(data);
+            set_immersive_sticky();
         }
     }
 }
@@ -322,6 +449,8 @@ fn android_main(app: AndroidApp) {
 
     ANDROID_VM.store(app.vm_as_ptr(), Ordering::SeqCst);
     ANDROID_ACTIVITY.store(app.activity_as_ptr(), Ordering::SeqCst);
+
+    set_immersive_sticky();
 
     let options = eframe::NativeOptions {
         android_app: Some(app),

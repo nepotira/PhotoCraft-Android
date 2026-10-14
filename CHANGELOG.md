@@ -4,6 +4,29 @@ Todas as alterações notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [0.1.2-android] - 2026-10-13 (Build 4)
+*Base Upstream: PhotoCraft v0.8.2*
+
+### 🛠️ Correções de Erros (Bug Fixes)
+- **[FIX-005] Glifos e Símbolos Visíveis (Fim dos Quadrados `□`)**:
+  - *Causa*: O egui não possui emojis ou setas Unicode (`➔`) na sua fonte padrão embutida, renderizando caixas de caracteres desconhecidos.
+  - *Solução*: Substituídos símbolos incompatíveis por caracteres ASCII universais e limpos (`>`, `<`), garantindo 100% de legibilidade em qualquer dispositivo.
+- **[FIX-006] Confirmação de Permissões em Tempo Real**:
+  - *Causa*: O botão ficava verde logo após a solicitação, sem validar se o usuário de fato autorizou o acesso no sistema operacional.
+  - *Solução*: Implementada checagem contínua via JNI (`has_storage_permission`). O botão exibe estado vermelho/pendente caso não autorizado e só se torna verde após confirmação do Android, com instruções claras e atalho para as configurações manuais.
+- **[FIX-007] Modo Imersivo Sticky Real (Ocultação da Barra Superior)**:
+  - *Causa*: O tema antigo do manifesto não forçava o desaparecimento das barras de sistema no Android 11+.
+  - *Solução*: Invocado `set_immersive_sticky` via JNI configurando as flags `SYSTEM_UI_FLAG_IMMERSIVE_STICKY`, `LAYOUT_HIDE_NAV` e `FULLSCREEN` no DecorView. As barras do sistema ficam 100% ocultas.
+- **[FIX-008] Diálogo "Novo Documento" Totalmente Responsivo**:
+  - *Causa*: O diálogo continha largura mínima rígida de 800pt e barra de presets de 520pt sem rolagem, vazando completamente da tela em celulares.
+  - *Solução*: Largura mínima e máxima adaptadas dinamicamente à largura da tela do aparelho e conteúdo envelopado em `egui::ScrollArea::both()`, permitindo rolagem com o dedo para visualizar todos os campos e criar documentos confortavelmente.
+- **[FIX-009] Gestos Multitoque na Área de Desenho (Estilo IbisPaint X) & Rolagem com Toque**:
+  - *Causa*: Ao encostar dois dedos na tela para dar zoom ou mover, o primeiro dedo era interpretado pelo PhotoCraft como pincel, traçando riscos acidentais.
+  - *Solução*: Ao detectar 2 dedos (`num_touches >= 2`), os traços da ferramenta ativa são cancelados e o aplicativo entra em modo de navegação com pinça de zoom, translação e rotação livres. Com 1 dedo, o desenho funciona normalmente. Também ativado `drag_to_scroll = true` em todas as listas e menus.
+- **[FIX-010] Seletor de Arquivos Integrado para Android**:
+  - *Causa*: Clicar em "Arquivo > Abrir" ou "Exportar Como" não respondia por falta de backend de diálogo de arquivos para Android.
+  - *Solução*: Criado o módulo `file_picker.rs`, que abre uma janela modal com atalhos para `/sdcard/Download`, `/sdcard/Pictures`, `/sdcard/DCIM` e permite abrir e salvar arquivos no armazenamento do celular sem travar a interface.
+
 ---
 
 ## [0.1.1-android] - 2026-10-13 (Build 3)
