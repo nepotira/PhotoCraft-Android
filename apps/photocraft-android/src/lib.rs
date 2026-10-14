@@ -310,7 +310,8 @@ impl AndroidShell {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         PhotocraftApp::setup_context(&cc.egui_ctx, ThemeKind::Pro);
         cc.egui_ctx.global_style_mut(|s| {
-            s.interaction.drag_to_scroll = true;
+            s.spacing.interact_size = egui::vec2(32.0, 32.0);
+            s.interaction.interact_radius = 8.0;
         });
 
         let session = photocraft_engine::Session::default();
