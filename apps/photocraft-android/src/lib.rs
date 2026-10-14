@@ -309,7 +309,7 @@ struct AndroidShell {
 impl AndroidShell {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         PhotocraftApp::setup_context(&cc.egui_ctx, ThemeKind::Pro);
-        cc.egui_ctx.style_mut(|s| {
+        cc.egui_ctx.global_style_mut(|s| {
             s.interaction.drag_to_scroll = true;
         });
 

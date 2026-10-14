@@ -3,7 +3,7 @@
 //! Provides direct file browsing for /sdcard/Download, /sdcard/Pictures, etc.
 //! Answers Photocraft's FileDialogReply cleanly without freezing the event loop.
 
-use egui::{Color32, CornerRadius, Margin, RichText, ScrollArea, Stroke, Ui, Vec2};
+use egui::{Color32, RichText, ScrollArea, Vec2};
 use photocraft_ui_egui::{FileDialogAnswer, FileDialogReply, FileDialogRequest};
 use std::fs;
 use std::path::{Path, PathBuf};
