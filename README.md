@@ -47,14 +47,14 @@ O objetivo deste projeto, liderado por **Nepo**, é viabilizar e otimizar a expe
 
 Para garantir transparência entre as novidades do aplicativo e as atualizações do motor original:
 
-* **Versão Android:** `v0.0.1-android`
+* **Versão Android:** `v0.1.2-android` (Build 4)
 * **Base Upstream:** `PhotoCraft v0.8.2` *(sincronizado continuamente com os commits mais recentes do repositório oficial)*
 
 ---
 
 ## 📥 Download e Instalação do APK
 
-Você pode baixar o instalador oficial diretamente na aba de **[Releases](https://github.com/nepotira/photocraft/releases)** ou nos artefatos do **[GitHub Actions](https://github.com/nepotira/photocraft/actions)**.
+Você pode baixar o instalador oficial diretamente na aba de **[Releases](https://github.com/nepotira/PhotoCraft-Android/releases)** ou nos artefatos do **[GitHub Actions](https://github.com/nepotira/PhotoCraft-Android/actions)**.
 
 ### Passo a passo para instalar:
 1. Baixe o arquivo `PhotoCraft-Android.apk` no seu dispositivo Android.
