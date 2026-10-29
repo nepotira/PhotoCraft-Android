@@ -112,3 +112,12 @@ Sempre que um erro for identificado pelo usuário ou nos pipelines:
 - **Regra de Ouro**: Sempre que uma nova compilação for gerada e os novos APKs forem transferidos/baixados para a pasta local `dist/`, **TODOS os APKs de versões anteriores DEVEM ser sumariamente excluídos do computador/armazenamento local**.
 - Apenas os binários correspondentes à versão corrente mais recente devem permanecer no diretório local de distribuição (`dist/`), evitando acúmulo de arquivos obsoletos e confusão na instalação manual.
 
+---
+
+## 8. Arquitetura de Plataforma de Destino: Android Mobile & GooglebookOS
+
+- **GooglebookOS é Bare-Metal (NÃO é Container)**: O GooglebookOS (como no hardware Jinlon / Intel Comet Lake) é um **sistema operacional nativo bare-metal para laptops e PCs** rodando Android diretamente sobre o hardware x86_64, e **NÃO** um container ou máquina virtual (ARCVM) emulado dentro do ChromeOS.
+- **Aceleração Gráfica Direta**: A renderização gráfica conversa diretamente com o driver Mesa e a GPU Intel UHD (`/dev/dri/renderD128`) via pipeline dual WGPU (`Backends::VULKAN | Backends::GL`).
+- **Janelamento Desktop Completo**: O aplicativo é uma janela desktop de primeira classe no GooglebookOS, com redimensionamento livre, atalhos de teclado do Photoshop e ponteiros de mouse nativos.
+
+
