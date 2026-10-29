@@ -104,3 +104,11 @@ Sempre que um erro for identificado pelo usuário ou nos pipelines:
      - **Status / Solução**: `[PENDENTE]` com proposta de ação ou `[FIX-XXX]` com a resolução implementada.
 2. Atualize o `CHANGELOG.md` na seção correspondente.
 3. Garanta que o estado do repositório seja comitado com mensagens semânticas claras (`fix:`, `feat:`, `chore:`, `release:`).
+
+---
+
+## 7. Política de Higienização de Artefatos Locais (Mandato Permanente)
+
+- **Regra de Ouro**: Sempre que uma nova compilação for gerada e os novos APKs forem transferidos/baixados para a pasta local `dist/`, **TODOS os APKs de versões anteriores DEVEM ser sumariamente excluídos do computador/armazenamento local**.
+- Apenas os binários correspondentes à versão corrente mais recente devem permanecer no diretório local de distribuição (`dist/`), evitando acúmulo de arquivos obsoletos e confusão na instalação manual.
+

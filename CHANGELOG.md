@@ -4,6 +4,28 @@ Todas as alterações notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [0.1.4-android] - 2026-10-29 (Build 6)
+*Base Upstream: PhotoCraft v0.17.0*
+
+### ✨ Recursos & Otimizações Multi-Plataforma
+- **[FEAT-002] Ícone Oficial do PhotoCraft Integrado**:
+  - *Objetivo*: Substituir o ícone genérico do sistema pelo logo oficial do PhotoCraft.
+  - *Solução*: Incorporados os assets oficiais em alta definição de `assets/app-icon/` nas resoluções `mdpi` (48x48), `hdpi` (64x64), `xhdpi` (128x128), `xxhdpi` (256x256), `xxxhdpi` (512x512) e `drawable/ic_launcher.png`, configurados via `[package.metadata.android]` com `icon = "@mipmap/ic_launcher"` e `resources = "res"`.
+- **[FIX-017] Suporte Completo a GPUs Intel UHD (Chromebooks Jinlon / Googlebook OS)**:
+  - *Causa*: No ChromeOS ARCVM e em dispositivos Intel Comet Lake (placa Jinlon), o Vulkan não é exposto por padrão aos containers Android, oferecendo aceleração total via OpenGL ES 3.2. A configuração padrão do WGPU em Android restringia-se ao Vulkan, causando falha e fechamento prematuro do renderizador.
+  - *Solução*: Configurado pipeline dual de renderização em `lib.rs` com `Backends::VULKAN | Backends::GL` (OpenGL ES via EGL), selecionando preferência de alta performance (`HighPerformance`), aplicando os limites reais do adaptador gráfico via `use_adapter_limits` e desativando `VALIDATION_INDIRECT_CALL` para evitar falhas do compilador de shaders em GPUs Intel integradas.
+- **[RULE-007] Mandato Universal de Limpeza de APKs Anteriores no Computador**:
+  - *Objetivo*: Manter o ambiente limpo e evitar confusão na instalação manual.
+  - *Solução*: Regra obrigatória inserida em `.agents/rules/universal-engineering-rules.md` e `GEMINI.md` determinando que, a cada nova versão gerada e baixada para `dist/`, todos os APKs de versões legadas devem ser imediatamente apagados.
+
+### 🛠️ Correções de Falhas Conhecidas (Bug Fixes)
+- **[FIX-016] Eliminação de Crash na Inicialização (Tela Branca e Fechamento Instantâneo)**:
+  - *Sintoma*: O usuário relatou que o app abria rapidamente, exibia uma tela branca rápida e fechava em loop.
+  - *Causa Raiz Técnica*: (1) A função `set_immersive_sticky()` era chamada na thread de background de `android_main` antes do `ANativeWindow` estar inicializado e anexado pelo sistema, lançando `CalledFromWrongThreadException` na camada Java do Android; (2) O JNI não limpava a exceção pendente (`exception_clear`), fazendo com que o runtime ART da JVM abortasse o processo via `SIGABRT` no próximo comando JNI.
+  - *Solução*: (a) Removida a chamada prematura de `set_immersive_sticky()` de antes do `eframe::run_native`; (b) Criado o helper inline `clear_jni_exception` e adicionada limpeza estrita de exceções em todas as operações JNI (`has_storage_permission`, `request_android_permissions`, `open_app_storage_settings`, `set_immersive_sticky`); (c) Registrado hook global de pânico com `std::panic::set_hook` para capturar e registrar qualquer anomalia no Android logcat.
+
+---
+
 ## [0.1.3-android] - 2026-10-29 (Build 5)
 *Base Upstream: PhotoCraft v0.17.0*
 

@@ -1,7 +1,7 @@
 //! PhotoCraft on Android using eframe's NativeActivity runner.
 //!
 //! Port maintained by Nepo (@nepotira).
-//! Version: 0.1.2-android (based on PhotoCraft upstream v0.8.2).
+//! Version: 0.1.4-android (based on PhotoCraft upstream v0.17.0).
 
 mod file_picker;
 mod onboarding;
@@ -17,6 +17,13 @@ use winit::platform::android::activity::AndroidApp;
 
 static ANDROID_VM: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static ANDROID_ACTIVITY: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+#[inline]
+fn clear_jni_exception(env: &mut jni::JNIEnv) {
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_clear();
+    }
+}
 
 pub fn set_immersive_sticky() {
     let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
@@ -41,17 +48,29 @@ pub fn set_immersive_sticky() {
         let window_val = match env.call_method(&activity, "getWindow", "()Landroid/view/Window;", &[]) {
             Ok(v) => match v.l() {
                 Ok(w) => w,
-                Err(_) => return,
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    return;
+                }
             },
-            Err(_) => return,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
         };
 
         let decor_val = match env.call_method(&window_val, "getDecorView", "()Landroid/view/View;", &[]) {
             Ok(v) => match v.l() {
                 Ok(d) => d,
-                Err(_) => return,
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    return;
+                }
             },
-            Err(_) => return,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
         };
 
         // Combined flags for IMMERSIVE_STICKY fullscreen:
@@ -60,7 +79,10 @@ pub fn set_immersive_sticky() {
         let flags: i32 = 5894;
 
         let _ = env.call_method(&decor_val, "setSystemUiVisibility", "(I)V", &[JValue::Int(flags)]);
+        clear_jni_exception(&mut env);
+
         let _ = env.call_method(&window_val, "addFlags", "(I)V", &[JValue::Int(1024)]);
+        clear_jni_exception(&mut env);
     }
 }
 
@@ -92,6 +114,7 @@ pub fn has_storage_permission() -> bool {
                 }
             }
         }
+        clear_jni_exception(&mut env);
 
         // Check READ_EXTERNAL_STORAGE
         if let Ok(perm_str) = env.new_string("android.permission.READ_EXTERNAL_STORAGE") {
@@ -101,6 +124,7 @@ pub fn has_storage_permission() -> bool {
                 }
             }
         }
+        clear_jni_exception(&mut env);
 
         // Check READ_MEDIA_IMAGES (Android 13+)
         if let Ok(perm_str) = env.new_string("android.permission.READ_MEDIA_IMAGES") {
@@ -110,6 +134,7 @@ pub fn has_storage_permission() -> bool {
                 }
             }
         }
+        clear_jni_exception(&mut env);
 
         false
     }
@@ -145,6 +170,7 @@ pub fn request_android_permissions() {
         let string_class = match env.find_class("java/lang/String") {
             Ok(c) => c,
             Err(e) => {
+                clear_jni_exception(&mut env);
                 log::error!("Failed to find java/lang/String: {e}");
                 return;
             }
@@ -160,6 +186,7 @@ pub fn request_android_permissions() {
         let array = match env.new_object_array(perms.len() as i32, string_class, JObject::null()) {
             Ok(a) => a,
             Err(e) => {
+                clear_jni_exception(&mut env);
                 log::error!("Failed to create String array: {e}");
                 return;
             }
@@ -169,6 +196,7 @@ pub fn request_android_permissions() {
             if let Ok(s) = env.new_string(p) {
                 let _ = env.set_object_array_element(&array, i as i32, &s);
             }
+            clear_jni_exception(&mut env);
         }
 
         let res = env.call_method(
@@ -182,8 +210,10 @@ pub fn request_android_permissions() {
         );
 
         if let Err(e) = res {
+            clear_jni_exception(&mut env);
             log::error!("Failed to call requestPermissions: {e}");
         } else {
+            clear_jni_exception(&mut env);
             log::info!("requestPermissions called successfully on Android Activity");
         }
     }
@@ -213,25 +243,40 @@ pub fn open_app_storage_settings() {
         let pkg_obj = match env.call_method(&activity, "getPackageName", "()Ljava/lang/String;", &[]) {
             Ok(v) => match v.l() {
                 Ok(obj) => obj,
-                Err(_) => return,
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    return;
+                }
             },
-            Err(_) => return,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
         };
 
         let pkg_jstr = jni::objects::JString::from(pkg_obj);
         let pkg_name: String = match env.get_string(&pkg_jstr) {
             Ok(s) => s.into(),
-            Err(_) => "ai.storyteller.photocraft".to_string(),
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                "ai.storyteller.photocraft".to_string()
+            }
         };
 
         let uri_class = match env.find_class("android/net/Uri") {
             Ok(c) => c,
-            Err(_) => return,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
         };
 
         let pkg_uri_str = match env.new_string(format!("package:{pkg_name}")) {
             Ok(s) => s,
-            Err(_) => return,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
         };
 
         let uri_obj = match env.call_static_method(
@@ -242,19 +287,31 @@ pub fn open_app_storage_settings() {
         ) {
             Ok(v) => match v.l() {
                 Ok(obj) => obj,
-                Err(_) => return,
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    return;
+                }
             },
-            Err(_) => return,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
         };
 
         let intent_class = match env.find_class("android/content/Intent") {
             Ok(c) => c,
-            Err(_) => return,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
         };
 
         let action_all_files = match env.new_string("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION") {
             Ok(s) => s,
-            Err(_) => return,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
         };
 
         let mut intent = env.new_object(
@@ -267,6 +324,7 @@ pub fn open_app_storage_settings() {
         );
 
         if intent.is_err() {
+            clear_jni_exception(&mut env);
             if let Ok(action_details) = env.new_string("android.settings.APPLICATION_DETAILS_SETTINGS") {
                 intent = env.new_object(
                     &intent_class,
@@ -287,6 +345,7 @@ pub fn open_app_storage_settings() {
                 &[JValue::Object(&intent_obj)],
             );
         }
+        clear_jni_exception(&mut env);
     }
 }
 
@@ -442,21 +501,35 @@ impl eframe::App for AndroidShell {
 
 #[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
+    std::panic::set_hook(Box::new(|info| {
+        log::error!("CRITICAL PANIC in PhotoCraft Android: {info}");
+    }));
+
     android_logger::init_once(
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    log::info!("PhotoCraft Android starting up");
+    log::info!("PhotoCraft Android & Googlebook OS v0.1.4 starting up");
 
     ANDROID_VM.store(app.vm_as_ptr(), Ordering::SeqCst);
     ANDROID_ACTIVITY.store(app.activity_as_ptr(), Ordering::SeqCst);
 
-    set_immersive_sticky();
-
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         android_app: Some(app),
         ..Default::default()
     };
+
+    // Native GPU support for ARM64 & x86_64 Intel UHD Graphics (Chromebook Jinlon / Googlebook OS)
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
+        // Dual backend: Vulkan primary, fallback to OpenGL ES (GLES via EGL)
+        create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN | eframe::wgpu::Backends::GL;
+        // Skip indirect-call validation shader compiler crashes on Intel GPUs (Comet Lake / Gen 9.5)
+        create.instance_descriptor.flags = create.instance_descriptor.flags
+            .difference(eframe::wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL)
+            .with_env();
+        create.power_preference = eframe::wgpu::PowerPreference::HighPerformance;
+    }
+    photocraft_ui_egui::gpu_canvas::use_adapter_limits(&mut options.wgpu_options.wgpu_setup);
 
     let result = eframe::run_native(
         "PhotoCraft",

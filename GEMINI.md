@@ -13,3 +13,5 @@ Este projeto segue as diretrizes obrigatórias de engenharia, arquitetura em Rus
 3. **Rust 2024 & Never Crash**: Proibido `unwrap()`, `expect()`, `panic!()` ou `todo!()` fora de testes.
 4. **SemVer & Monotonia**: Incrementar a versão semântica e `version_code` a cada nova build.
 5. **Documentação Contínua**: Registrar todo bug em `CHANGELOG.md` com padrão `[BUG-XXX]` e `[FIX-XXX]`.
+6. **Higienização de APKs**: Sempre apagar APKs de versões anteriores do computador/armazenamento local após baixar ou gerar novas versões.
+
