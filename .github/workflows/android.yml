@@ -80,11 +80,11 @@ jobs:
           mkdir -p build-artifacts
           echo "Compiling ARM64 APK for mobile devices and tablets..."
           cargo apk build --package photocraft-android --release --target aarch64-linux-android
-          cp target/aarch64-linux-android/release/apk/*.apk build-artifacts/PhotoCraft-Android-arm64-v8a.apk || true
+          cp target/release/apk/photocraft-android.apk build-artifacts/PhotoCraft-Android-arm64-v8a.apk
 
           echo "Compiling x86_64 APK for Chromebooks / Googlebook OS..."
           cargo apk build --package photocraft-android --release --target x86_64-linux-android
-          cp target/x86_64-linux-android/release/apk/*.apk build-artifacts/PhotoCraft-Android-x86_64.apk || true
+          cp target/release/apk/photocraft-android.apk build-artifacts/PhotoCraft-Android-x86_64.apk
 
       - name: List Output Files
         run: |

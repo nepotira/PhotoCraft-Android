@@ -16,7 +16,6 @@ pub struct PendingFilePicker {
     pub selected_file: Option<PathBuf>,
     pub save_name: String,
     pub show_all_files: bool,
-    pub error_msg: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -69,7 +68,6 @@ impl FilePickerState {
             selected_file: None,
             save_name,
             show_all_files: false,
-            error_msg: None,
         });
     }
 
