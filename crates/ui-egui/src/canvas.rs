@@ -2993,7 +2993,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 view.center[1] -= d.y;
             }
 
-            if touch.zoom_delta > 0.0 && touch.zoom_delta != 1.0 {
+            if touch.zoom_delta > 0.0 && (touch.zoom_delta - 1.0).abs() > 0.005 {
                 let nz = crate::zoom_levels::clamp(view.zoom * touch.zoom_delta, view.doc_size);
                 if nz != view.zoom {
                     let at = wheel_anchor(&xf, touch.center_pos, view.doc_size);
@@ -3001,7 +3001,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 }
             }
 
-            if touch.rotation_delta != 0.0 && touch.rotation_delta.is_finite() {
+            if touch.rotation_delta.is_finite() && touch.rotation_delta.abs() > 0.005 {
                 let deg = touch.rotation_delta.to_degrees();
                 view.rotation = crate::rotate_view::wrap_deg(view.rotation + deg);
             }

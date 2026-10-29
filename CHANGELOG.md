@@ -4,6 +4,30 @@ Todas as alterações notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [0.1.3-android] - 2026-10-29 (Build 5)
+*Base Upstream: PhotoCraft v0.17.0*
+
+### ✨ Recursos & Otimizações Multi-Plataforma
+- **[FEAT-001] Suporte Dual-ABI Nativo (Android ARM64 & Googlebook OS / Chromebook x86_64)**:
+  - *Objetivo*: Eliminar o gargalo de tradução binária (Houdini/NDK) em Chromebooks e PCs x86_64 com ChromeOS / Googlebook OS.
+  - *Solução*: Configurado suporte nativo para `aarch64-linux-android` e `x86_64-linux-android` no `Cargo.toml` e no workflow de CI `android.yml`. O app roda 100% nativo com aceleração gráfica WGPU em ambas as plataformas sem perda de performance.
+
+### 🛠️ Correções de Erros (Bug Fixes)
+- **[FIX-012] Filtro Dinâmico de Extensões no Seletor de Arquivos**:
+  - *Causa*: O seletor listava todos os arquivos indistintamente, dificultando achar imagens e PSDs em pastas cheias.
+  - *Solução*: Implementada filtragem dinâmica baseada em `request.filters` (`.psd`, `.png`, `.jpg`, etc.) com caixa de seleção "Exibir todos os formatos" para alternância sob demanda.
+- **[FIX-013] Resolução Robusta de Armazenamento Android Multi-Usuário**:
+  - *Causa*: Caminhos rígidos para `/sdcard` falhavam em ambientes com perfis de trabalho ou caminhos modernos `/storage/emulated/0` ou `/storage/emulated/10`.
+  - *Solução*: Implementada detecção automática do root de armazenamento real do sistema, adicionando atalhos diretos e confiáveis.
+- **[FIX-014] Zona Morta (Deadzone) nos Gestos de Pinça no Canvas**:
+  - *Causa*: Variações infinitesimais no toque de 2 dedos geravam micro-tremores (jitter) indesejados ao segurar a tela.
+  - *Solução*: Adicionado limiar de tolerância de 0.005 para zoom e rotação, tornando a navegação suave e estável.
+- **[FIX-015] Rastreamento Mandatório Contínuo do Upstream PhotoCraft**:
+  - *Causa*: Ausência de regra rígida para incorporar novas versões da storytold.
+  - *Solução*: Estabelecido o arquivo de persistência `.agents/rules/upstream-synchronization-rules.md` obrigando checagem e merge contínuo do upstream a cada ciclo de desenvolvimento.
+
+---
+
 ## [0.1.2-android] - 2026-10-13 (Build 4)
 *Base Upstream: PhotoCraft v0.8.2*
 

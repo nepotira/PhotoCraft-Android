@@ -23,7 +23,7 @@ Formato: `v<MAJOR>.<MINOR>.<PATCH>-android`
 - **Sufixo `-android`**:
   - Identifica explicitamente o port Android customizado.
 - **Rastreamento Upstream**:
-  - Deve sempre ser documentada a versão base do PhotoCraft original da storytold (ex: `Base Upstream: v0.8.2`).
+  - Deve sempre ser documentada a versão base do PhotoCraft original da storytold (ex: `Base Upstream: v0.17.0`).
 
 ### 1.2 Android `version_code` (Obrigatório)
 No Android, o instalador do sistema (`PackageInstaller` / Google Play) utiliza um número inteiro sequencial para determinar se um APK é uma atualização válida:

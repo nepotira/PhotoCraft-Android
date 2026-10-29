@@ -46,7 +46,7 @@ jobs:
       - name: Set up Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android, x86_64-linux-android
 
       - name: Cache Cargo Dependencies
         uses: actions/cache@v4
@@ -75,17 +75,25 @@ jobs:
             echo "Using persistent release keystore from repository."
           fi
 
-      - name: Build PhotoCraft APK
+      - name: Build PhotoCraft APK (ARM64 & x86_64)
         run: |
+          mkdir -p build-artifacts
+          echo "Compiling ARM64 APK for mobile devices and tablets..."
           cargo apk build --package photocraft-android --release --target aarch64-linux-android
+          cp target/aarch64-linux-android/release/apk/*.apk build-artifacts/PhotoCraft-Android-arm64-v8a.apk || true
+
+          echo "Compiling x86_64 APK for Chromebooks / Googlebook OS..."
+          cargo apk build --package photocraft-android --release --target x86_64-linux-android
+          cp target/x86_64-linux-android/release/apk/*.apk build-artifacts/PhotoCraft-Android-x86_64.apk || true
 
       - name: List Output Files
         run: |
+          ls -lh build-artifacts/
           find target -name "*.apk" -ls
 
-      - name: Upload PhotoCraft APK Artifact
+      - name: Upload PhotoCraft APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: photocraft-android-apk
-          path: target/**/apk/*.apk
+          name: photocraft-android-apks
+          path: build-artifacts/*.apk
           retention-days: 30

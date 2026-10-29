@@ -15,6 +15,7 @@ pub struct PendingFilePicker {
     pub current_dir: PathBuf,
     pub selected_file: Option<PathBuf>,
     pub save_name: String,
+    pub show_all_files: bool,
     pub error_msg: Option<String>,
 }
 
@@ -67,6 +68,7 @@ impl FilePickerState {
             current_dir,
             selected_file: None,
             save_name,
+            show_all_files: false,
             error_msg: None,
         });
     }
@@ -97,23 +99,34 @@ impl FilePickerState {
                 .show(ctx, |ui| {
                     ui.set_width(window_w - 24.0);
 
+                    let root_storage = if Path::new("/storage/emulated/0").exists() {
+                        "/storage/emulated/0"
+                    } else if Path::new("/storage/emulated/10").exists() {
+                        "/storage/emulated/10"
+                    } else {
+                        "/sdcard"
+                    };
+
                     // Shortcuts row
                     ui.horizontal_wrapped(|ui| {
                         ui.label(RichText::new("Locais:").small().color(Color32::GRAY));
                         if ui.button("📥 Downloads").clicked() {
-                            picker.current_dir = PathBuf::from("/sdcard/Download");
+                            let p = PathBuf::from(format!("{root_storage}/Download"));
+                            picker.current_dir = if p.exists() { p } else { PathBuf::from("/sdcard/Download") };
                             picker.selected_file = None;
                         }
                         if ui.button("🖼️ Imagens").clicked() {
-                            picker.current_dir = PathBuf::from("/sdcard/Pictures");
+                            let p = PathBuf::from(format!("{root_storage}/Pictures"));
+                            picker.current_dir = if p.exists() { p } else { PathBuf::from("/sdcard/Pictures") };
                             picker.selected_file = None;
                         }
                         if ui.button("📷 Câmera").clicked() {
-                            picker.current_dir = PathBuf::from("/sdcard/DCIM");
+                            let p = PathBuf::from(format!("{root_storage}/DCIM"));
+                            picker.current_dir = if p.exists() { p } else { PathBuf::from("/sdcard/DCIM") };
                             picker.selected_file = None;
                         }
                         if ui.button("📁 Armazenamento").clicked() {
-                            picker.current_dir = PathBuf::from("/sdcard");
+                            picker.current_dir = PathBuf::from(root_storage);
                             picker.selected_file = None;
                         }
                     });
@@ -136,6 +149,21 @@ impl FilePickerState {
                                 .color(Color32::from_rgb(180, 190, 205)),
                         );
                     });
+
+                    let allowed_extensions: Option<Vec<String>> = match &picker.request {
+                        FileDialogRequest::Open { extensions: Some(exts), .. } => Some(exts.clone()),
+                        _ => None,
+                    };
+
+                    if let Some(ref exts) = allowed_extensions {
+                        if !exts.is_empty() {
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(format!("Filtro: .{}", exts.join(", ."))).small().color(Color32::from_rgb(140, 200, 255)));
+                                ui.checkbox(&mut picker.show_all_files, "Exibir todos os formatos");
+                            });
+                        }
+                    }
 
                     ui.separator();
 
@@ -173,12 +201,31 @@ impl FilePickerState {
                                         }
                                     }
 
+                                    let mut filtered_files: Vec<PathBuf> = Vec::new();
                                     for f in files {
                                         let name = f.file_name().unwrap_or_default().to_string_lossy();
                                         if name.starts_with('.') {
                                             continue;
                                         }
-                                        let is_selected = picker.selected_file.as_ref() == Some(&f);
+                                        if !picker.show_all_files {
+                                            if let Some(ref exts) = allowed_extensions {
+                                                if !exts.is_empty() {
+                                                    let matches = f.extension()
+                                                        .and_then(|e| e.to_str())
+                                                        .map(|ext| exts.iter().any(|a| a.eq_ignore_ascii_case(ext)))
+                                                        .unwrap_or(false);
+                                                    if !matches {
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        filtered_files.push(f);
+                                    }
+
+                                    for f in &filtered_files {
+                                        let name = f.file_name().unwrap_or_default().to_string_lossy();
+                                        let is_selected = picker.selected_file.as_ref() == Some(f);
                                         if ui.selectable_label(is_selected, format!("📄 {}", name)).clicked() {
                                             picker.selected_file = Some(f.clone());
                                             if is_save {
@@ -277,10 +324,22 @@ impl FilePickerState {
 }
 
 fn default_storage_dir() -> PathBuf {
-    let dl = PathBuf::from("/sdcard/Download");
-    if dl.exists() {
-        dl
-    } else {
-        PathBuf::from("/sdcard")
+    let candidates = [
+        "/storage/emulated/0/Download",
+        "/storage/emulated/10/Download",
+        "/sdcard/Download",
+        "/storage/emulated/0/Pictures",
+        "/storage/emulated/10/Pictures",
+        "/sdcard/Pictures",
+        "/storage/emulated/0",
+        "/storage/emulated/10",
+        "/sdcard",
+    ];
+    for &cand in &candidates {
+        let p = PathBuf::from(cand);
+        if p.exists() && p.is_dir() {
+            return p;
+        }
     }
+    PathBuf::from("/sdcard")
 }

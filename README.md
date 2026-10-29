@@ -39,7 +39,7 @@ O objetivo deste projeto, liderado por **Nepo**, é viabilizar e otimizar a expe
 * 📱 **Controles Touch e Escala Dinâmica:**
   * Ajuste rápido de zoom/DPI da interface diretamente na barra superior para telas compactas de celular (evitando cortes e vazamentos de painéis).
   * Rolagem fluida por toque em listas e menus extensos.
-* ⚡ **Performance Nativa em Rust:** Compilado diretamente para binários de máquina nativos `ARM64 (aarch64-linux-android)` com aceleração gráfica direta na GPU via `wgpu`.
+* ⚡ **Performance Nativa em Rust (Dual-ABI):** Compilado diretamente para binários de máquina nativos `ARM64 (aarch64-linux-android)` para celulares/tablets e `x86_64 (x86_64-linux-android)` para Chromebooks / Googlebook OS, com aceleração gráfica direta na GPU via `wgpu`.
 
 ---
 
@@ -47,8 +47,8 @@ O objetivo deste projeto, liderado por **Nepo**, é viabilizar e otimizar a expe
 
 Para garantir transparência entre as novidades do aplicativo e as atualizações do motor original:
 
-* **Versão Android:** `v0.1.2-android` (Build 4)
-* **Base Upstream:** `PhotoCraft v0.8.2` *(sincronizado continuamente com os commits mais recentes do repositório oficial)*
+* **Versão Android:** `v0.1.3-android` (Build 5)
+* **Base Upstream:** `PhotoCraft v0.17.0` *(sincronizado continuamente com os lançamentos mais recentes do repositório oficial)*
 
 ---
 

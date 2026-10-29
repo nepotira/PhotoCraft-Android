@@ -7,6 +7,7 @@ Este projeto segue as diretrizes obrigatórias de engenharia, arquitetura em Rus
 - [`CHANGELOG.md`](CHANGELOG.md)
 
 ### Diretrizes de Ação Imediata para o Agente:
+0. **Sincronização Upstream Obrigatória (SEMPRE)**: Antes e durante qualquer modificação, cheque o repositório original (`storytold/photocraft`). Sincronize sempre para a base mais recente disponível (consulte `.agents/rules/upstream-synchronization-rules.md`).
 1. **Preservação Mobile**: Nunca remova ou reescreva a pasta `apps/photocraft-android/` sem necessidade explícita.
 2. **Keystore Intocável**: Jamais apague ou regere `apps/photocraft-android/release.keystore`.
 3. **Rust 2024 & Never Crash**: Proibido `unwrap()`, `expect()`, `panic!()` ou `todo!()` fora de testes.
