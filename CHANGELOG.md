@@ -4,6 +4,29 @@ Todas as alterações notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [0.1.7-android] - 2026-10-30 (Build 9)
+*Base Upstream: PhotoCraft v0.17.0 (Sincronizado)*
+
+### 🛠️ Correções de Erros & Aprimoramentos Críticos (Bug Fixes)
+- **[BUG-028] / [FIX-028] Ativação Total de Atalhos de Teclado e Manipulação do Quadro Branco via Mouse (`Ctrl+Z`, `Espaço+Arrasto`, etc.)**:
+  - *Sintoma*: Atalhos essenciais de teclado como `Ctrl+Z` (Desfazer), `Ctrl+Shift+Z` (Refazer), teclas de ferramentas (`V`, `M`, `L`, `B`, `H`, `Z`), `[` e `]` (tamanho do pincel) e a movimentação do quadro branco via mouse com a tecla `Espaço` mantida pressionada (ferramenta Mão temporária) não funcionavam no Googlebook OS.
+  - *Causa Raiz*: Em `crates/ui-egui/src/app/frame.rs:84`, a chamada `shortcuts::handle(self, ctx)` estava encapsulada sob `if type_tool::in_ui_pass(ctx)`. No ciclo de vida do eframe, o método `logic` é chamado antes da passagem de interface (`ctx.run`), fazendo com que `in_ui_pass(ctx)` retornasse `false` durante o `logic` e silenciasse todos os atalhos de teclado.
+  - *Solução*: (a) Inserido despacho explícito de `photocraft_ui_egui::shortcuts::handle(app, ui.ctx())` diretamente na avaliação de interface no `AndroidShell::ui`, onde todos os eventos do frame atual estão ativos e validados; (b) Chamada de `wheel_nav::fold_legacy_pinch` habilitada no `raw_input_hook` para Android/Googlebook OS, permitindo pinça e rolagem fluida de touchpad; (c) Desbloqueada a navegação do quadro branco ao manter a barra de espaço pressionada e arrastar com o botão esquerdo do mouse, com suporte nativo a arrasto pelo botão do meio do mouse e atalho `H`.
+- **[BUG-029] / [FIX-029] Leitura Assíncrona e Não-Bloqueante de Arquivos do Google Drive (Fim dos Travamentos de I/O)**:
+  - *Sintoma*: Ao soltar um arquivo arrastado do Google Drive no PhotoCraft, o aplicativo congelava a tela ("travando ao tentar abrir arquivo do Drive arrastado").
+  - *Causa Raiz*: (1) A leitura do `ContentResolver.openInputStream()` (`read_content_or_file_uri`) era executada de forma síncrona na thread principal de renderização; como o provedor do Google Drive transfere os dados via rede e IPC, o loop gráfico ficava paralisado até a conclusão do download; (2) Ocorria colisão de I/O por leitura duplicada, pois tanto o `onDrop` do Java quanto o `poll_drop_helper` abriam a mesma URI em paralelo.
+  - *Solução*: (a) Toda a ingestão de URIs de ContentProvider e Intents foi desacoplada em threads secundárias dedicadas (`std::thread::spawn(move || { ... enqueue_pending_file(...) })`); (b) No `DropHelper.java`, a entrega de eventos `ACTION_DROP` foi separada em worker threads assíncronas; (c) A interface permanece a 60/120 FPS sem nenhuma interrupção enquanto arquivos pesados ou remotos são baixados e carregados.
+- **[BUG-030] / [FIX-030] Eliminação de Overhead no Loop Gráfico e Ativação de Background Jobs**:
+  - *Sintoma*: Queda de fluidez e lentidão no editor ("photocraft lento em desempenho. Desempenho meio porco.").
+  - *Causa Raiz*: (1) `poll_drop_helper()` executava `vm.attach_current_thread()` e reflexão JNI a cada frame (60–120x por segundo), provocando pressão sobre o garbage collector do ART e contenção de locks; (2) `app.background_jobs` permanecia como `false`, desativando threads de renderização em segundo plano (`background_redraw`) e empacando o pipeline na UI thread.
+  - *Solução*: (a) Ativado `app.background_jobs = true;`, liberando a renderização assíncrona do canvas e filtros em núcleos paralelos; (b) Criada flag estática volátil `hasPendingDrops` no Java e amostragem espaçada no Rust (a cada 10 frames), zerando chamadas JNI desnecessárias.
+- **[BUG-031] / [FIX-031] Correção Definitiva do Cursor do Mouse (Hover) na Árvore de Views do Android 17 / Googlebook OS**:
+  - *Sintoma*: O cursor do mouse permanecia na seta padrão mesmo ao passar sobre elementos com cursor personalizado (texto, mão, cruz, redimensionadores).
+  - *Causa Raiz*: O `NativeActivity` hospeda uma `SurfaceView` como filha da árvore de views. O método `setPointerIcon()` chamado apenas na raiz não era herdado pela `SurfaceView`, cujo método `onResolvePointerIcon()` retornava nulo.
+  - *Solução*: (a) Criada a função recursiva `applyPointerIconRecursively()` em `DropHelper.java`, descendo por toda a hierarquia de `ViewGroup`s e atribuindo o ponteiro a todas as views e `SurfaceView`s; (b) Registro de `OnHoverListener` na raiz com o ponteiro ativo salvo em `sCurrentPointerIcon`, aplicando dinamicamente o cursor correto em eventos `ACTION_HOVER_MOVE` e `ACTION_HOVER_ENTER`; (c) Forçada a apropriação de foco de teclado físico na janela (`decorView.requestFocus()`).
+
+---
+
 ## [0.1.6-android] - 2026-10-30 (Build 8)
 *Base Upstream: PhotoCraft v0.17.0 (Sincronizado)*
 

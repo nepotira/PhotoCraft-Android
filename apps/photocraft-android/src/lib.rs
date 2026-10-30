@@ -1,7 +1,7 @@
 //! PhotoCraft on Android & Googlebook OS using eframe's NativeActivity runner.
 //!
 //! Port maintained by Nepo (@nepotira).
-//! Version: 0.1.5-android (based on PhotoCraft upstream v0.17.0).
+//! Version: 0.1.7-android (based on PhotoCraft upstream v0.17.0).
 
 mod file_picker;
 mod onboarding;
@@ -53,9 +53,11 @@ pub extern "system" fn Java_ai_storyteller_photocraft_DropHelper_onDrop(
     if let Ok(uri_str) = env.get_string(&uri_obj) {
         let uri_s: String = uri_str.into();
         log::info!("DropHelper onDrop received URI: {uri_s}");
-        if let Some((name, bytes)) = read_content_or_file_uri(&uri_s) {
-            enqueue_pending_file(name, bytes);
-        }
+        std::thread::spawn(move || {
+            if let Some((name, bytes)) = read_content_or_file_uri(&uri_s) {
+                enqueue_pending_file(name, bytes);
+            }
+        });
     }
 }
 
@@ -603,6 +605,16 @@ pub fn poll_drop_helper() {
         };
         let helper_cls = JClass::from_raw(class_ptr as jni::sys::jclass);
 
+        // Fast-path: check static boolean flag hasPendingDrops to avoid JNI method calls
+        if let Ok(field_val) = env.get_static_field(&helper_cls, "hasPendingDrops", "Z") {
+            if !field_val.z().unwrap_or(false) {
+                clear_jni_exception(&mut env);
+                return;
+            }
+        } else {
+            clear_jni_exception(&mut env);
+        }
+
         loop {
             let res = env.call_static_method(
                 &helper_cls,
@@ -616,9 +628,11 @@ pub fn poll_drop_helper() {
                         if let Ok(jstr) = env.get_string(&JString::from(obj)) {
                             let uri_s: String = jstr.into();
                             log::info!("Polled dropped URI from DropHelper: {uri_s}");
-                            if let Some((name, bytes)) = read_content_or_file_uri(&uri_s) {
-                                enqueue_pending_file(name, bytes);
-                            }
+                            std::thread::spawn(move || {
+                                if let Some((name, bytes)) = read_content_or_file_uri(&uri_s) {
+                                    enqueue_pending_file(name, bytes);
+                                }
+                            });
                         }
                     }
                     _ => break,
@@ -1171,8 +1185,10 @@ impl eframe::App for AndroidShell {
             }
         }
 
-        // Poll dropped files from DropHelper (Google Drive & local Downloads drag & drop)
-        poll_drop_helper();
+        // Poll dropped files from DropHelper (throttled to avoid redundant JNI checks)
+        if self.frames_since_start % 10 == 0 || self.frames_since_start <= 5 {
+            poll_drop_helper();
+        }
 
         // Bug 1: Mouse Hover / Cursor Icon changes on Googlebook OS & Android desktop
         let current_cursor = ctx.output(|o| o.cursor_icon);
@@ -1185,9 +1201,11 @@ impl eframe::App for AndroidShell {
         if self.frames_since_start % 20 == 0 || self.frames_since_start == 2 {
             if let Some(uri_str) = check_and_clear_activity_intent() {
                 log::info!("Discovered file from Android Intent: {uri_str}");
-                if let Some((name, bytes)) = read_content_or_file_uri(&uri_str) {
-                    enqueue_pending_file(name, bytes);
-                }
+                std::thread::spawn(move || {
+                    if let Some((name, bytes)) = read_content_or_file_uri(&uri_str) {
+                        enqueue_pending_file(name, bytes);
+                    }
+                });
             }
         }
 
@@ -1210,6 +1228,7 @@ impl eframe::App for AndroidShell {
                     let session = self.session.take().unwrap_or_default();
                     let services = self.services.take().unwrap_or_default();
                     let mut app = PhotocraftApp::new(session, services);
+                    app.background_jobs = true;
                     app.set_theme(ctx, ThemeKind::Pro);
                     if let Some(rs) = self.wgpu_state.clone() {
                         app.set_wgpu(rs);
@@ -1228,11 +1247,15 @@ impl eframe::App for AndroidShell {
         }
 
         if let AndroidState::Running(app) = &mut self.state {
+            let key = egui::Id::unique(("photocraft-type-reset-ui", ctx.viewport_id()));
+            ctx.data_mut(|d| d.insert_temp(key, true));
             app.logic(ctx, frame);
         }
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        // Fold trackpad pinch gestures on Chromebook / Googlebook OS
+        photocraft_ui_egui::canvas::wheel_nav::fold_legacy_pinch(ctx, raw_input);
         if let AndroidState::Running(app) = &mut self.state {
             app.raw_input_hook(ctx, raw_input);
         }
@@ -1275,6 +1298,9 @@ impl eframe::App for AndroidShell {
                 }
             }
             AndroidState::Running(app) => {
+                // BUG-028/FIX-028: Dispatch keyboard shortcuts (Ctrl+Z, Undo, Redo, Space pan, Tools) in UI pass
+                photocraft_ui_egui::shortcuts::handle(app, ui.ctx());
+
                 let mut zoom_delta = 0.0;
                 let current_zoom = self.zoom_factor;
 
@@ -1321,6 +1347,7 @@ impl eframe::App for AndroidShell {
             let session = self.session.take().unwrap_or_default();
             let services = self.services.take().unwrap_or_default();
             let mut app = PhotocraftApp::new(session, services);
+            app.background_jobs = true;
             app.set_theme(&ctx, ThemeKind::Pro);
             if let Some(rs) = self.wgpu_state.clone() {
                 app.set_wgpu(rs);
@@ -1352,7 +1379,7 @@ fn android_main(app: AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    log::info!("PhotoCraft Android & Googlebook OS v0.1.5 starting up");
+    log::info!("PhotoCraft Android & Googlebook OS v0.1.7 starting up");
 
     ANDROID_VM.store(app.vm_as_ptr(), Ordering::SeqCst);
     ANDROID_ACTIVITY.store(app.activity_as_ptr(), Ordering::SeqCst);

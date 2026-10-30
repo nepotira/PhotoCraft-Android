@@ -3,6 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [ main, android ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   schedule:
