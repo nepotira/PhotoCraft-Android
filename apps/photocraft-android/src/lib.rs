@@ -538,7 +538,7 @@ pub fn init_drop_helper_if_needed() {
             }
         };
 
-        let loaded_class = match env.call_method(
+        let loaded_class_obj = match env.call_method(
             &loader,
             "loadClass",
             "(Ljava/lang/String;)Ljava/lang/Class;",
@@ -558,6 +558,7 @@ pub fn init_drop_helper_if_needed() {
             }
         };
 
+        let loaded_class: JClass = loaded_class_obj.into();
         let _ = env.call_static_method(
             &loaded_class,
             "attach",
@@ -1133,10 +1134,9 @@ impl eframe::App for AndroidShell {
         // Bug 6: Inset spacer to prevent Googlebook OS system window caption bar from covering PhotoCraft
         let total_top_offset = (self.caption_top_inset_points + self.manual_top_offset).max(0.0);
         if total_top_offset > 0.0 {
-            egui::TopBottomPanel::top("googlebook_caption_spacer")
-                .frame(egui::Frame::none())
-                .show_separator_line(false)
-                .exact_height(total_top_offset)
+            egui::Panel::top("googlebook_caption_spacer")
+                .exact_size(total_top_offset)
+                .frame(egui::Frame::NONE)
                 .show(ui, |_ui| {
                     // Transparent spacer ensuring options bar starts cleanly below window caption
                 });
