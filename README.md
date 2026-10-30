@@ -2,7 +2,11 @@
   <img alt="PhotoCraft Android" src="docs/brand/artcraft-logo.svg" width="180">
 </p>
 
-<h1 align="center">PhotoCraft Android</h1>
+<p align="center">
+  <img src="assets/app-icon/hicolor/256x256/apps/ai.storyteller.photocraft.png" width="128" height="128" alt="PhotoCraft icon: an engraved nine-tailed fox on a blue tile">
+</p>
+
+<h1 align="center">PhotoCraft Android & Googlebook OS</h1>
 
 <p align="center">
   <b>A primeira edição para Android do PhotoCraft — O Photoshop de código aberto em Rust.</b><br>
@@ -11,10 +15,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/nepotira/PhotoCraft-Android/releases"><img alt="Android Version" src="https://img.shields.io/badge/Android%20Edition-v0.1.4--android-34A853?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="https://github.com/nepotira/PhotoCraft-Android/releases"><img alt="Android Version" src="https://img.shields.io/badge/Android%20Edition-v0.1.5--android-34A853?style=for-the-badge&logo=android&logoColor=white"></a>
   <a href="https://github.com/storytold/photocraft"><img alt="Upstream Base" src="https://img.shields.io/badge/Upstream%20Base-PhotoCraft%20v0.17.0-FF9900?style=for-the-badge&logo=github"></a>
   <img alt="100% Rust" src="https://img.shields.io/badge/100%25-Rust-b7410e?style=for-the-badge&logo=rust">
   <img alt="Samsung DeX Ready" src="https://img.shields.io/badge/Samsung%20DeX-Compat%C3%ADvel-1428A0?style=for-the-badge">
+  <img alt="Googlebook OS Ready" src="https://img.shields.io/badge/Googlebook%20OS%20(x86)-Nativo-4285F4?style=for-the-badge">
   <img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-3a3a3a?style=for-the-badge">
 </p>
 
