@@ -75,6 +75,21 @@ jobs:
             echo "Using persistent release keystore from repository."
           fi
 
+      - name: Compile DropHelper DEX
+        run: |
+          mkdir -p /tmp/drop_classes
+          mkdir -p apps/photocraft-android/assets
+          PLATFORM_JAR=$(ls $ANDROID_HOME/platforms/android-*/android.jar | sort -V | tail -n 1)
+          D8_TOOL=$(ls $ANDROID_HOME/build-tools/*/d8 | sort -V | tail -n 1)
+          echo "Using platform jar: $PLATFORM_JAR"
+          echo "Using d8 tool: $D8_TOOL"
+          javac -source 8 -target 8 -bootclasspath "$PLATFORM_JAR" \
+            apps/photocraft-android/java/ai/storyteller/photocraft/DropHelper.java \
+            -d /tmp/drop_classes
+          "$D8_TOOL" /tmp/drop_classes/ai/storyteller/photocraft/*.class \
+            --output apps/photocraft-android/assets/
+          ls -la apps/photocraft-android/assets/
+
       - name: Build PhotoCraft APK (ARM64 & x86_64)
         run: |
           mkdir -p build-artifacts

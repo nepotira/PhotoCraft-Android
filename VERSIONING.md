@@ -70,11 +70,23 @@ Ao lançar uma nova versão, sincronize o campo `version` em `apps/photocraft-an
 ```toml
 [package]
 name = "photocraft-android"
-version = "<MAJOR>.<MINOR>.<PATCH>" # Ex: "0.1.1"
+version = "<MAJOR>.<MINOR>.<PATCH>" # Ex: "0.1.5"
 
 [package.metadata.android]
 package = "ai.storyteller.photocraft"
 apk_label = "PhotoCraft"
-fullscreen = true
+icon = "@mipmap/ic_launcher"
+resources = "res"
+assets = "assets"
+build_targets = ["aarch64-linux-android", "x86_64-linux-android"]
+
+[package.metadata.android.application]
+label = "PhotoCraft"
+icon = "@mipmap/ic_launcher"
+theme = "@android:style/Theme.DeviceDefault.NoActionBar"
+
+[package.metadata.android.application.activity]
+label = "PhotoCraft"
+icon = "@mipmap/ic_launcher"
 resizeable_activity = true
 ```

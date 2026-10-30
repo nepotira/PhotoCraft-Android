@@ -1,22 +1,25 @@
-//! PhotoCraft on Android using eframe's NativeActivity runner.
+//! PhotoCraft on Android & Googlebook OS using eframe's NativeActivity runner.
 //!
 //! Port maintained by Nepo (@nepotira).
-//! Version: 0.1.4-android (based on PhotoCraft upstream v0.17.0).
+//! Version: 0.1.5-android (based on PhotoCraft upstream v0.17.0).
 
 mod file_picker;
 mod onboarding;
 
 use file_picker::FilePickerState;
-use jni::objects::{JObject, JValue};
+use jni::objects::{JClass, JObject, JString, JValue};
 use onboarding::{OnboardingAction, OnboardingData, render_wizard};
 use photocraft_ui_egui::theme::ThemeKind;
 use photocraft_ui_egui::{PhotocraftApp, Services};
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use winit::platform::android::activity::AndroidApp;
 
 static ANDROID_VM: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static ANDROID_ACTIVITY: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+static DROP_HELPER_INITIALIZED: AtomicBool = AtomicBool::new(false);
+static PENDING_FILES: Mutex<Vec<(String, Vec<u8>)>> = Mutex::new(Vec::new());
 
 #[inline]
 fn clear_jni_exception(env: &mut jni::JNIEnv) {
@@ -25,7 +28,355 @@ fn clear_jni_exception(env: &mut jni::JNIEnv) {
     }
 }
 
-pub fn set_immersive_sticky() {
+pub fn enqueue_pending_file(name: String, bytes: Vec<u8>) {
+    if let Ok(mut lock) = PENDING_FILES.lock() {
+        lock.push((name, bytes));
+    }
+}
+
+pub fn take_pending_files() -> Vec<(String, Vec<u8>)> {
+    if let Ok(mut lock) = PENDING_FILES.lock() {
+        std::mem::take(&mut *lock)
+    } else {
+        Vec::new()
+    }
+}
+
+/// Native JNI callback invoked by DropHelper.java when files are dropped.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_ai_storyteller_photocraft_DropHelper_onDrop(
+    mut env: jni::JNIEnv,
+    _class: JClass,
+    uri_obj: JString,
+) {
+    if let Ok(uri_str) = env.get_string(&uri_obj) {
+        let uri_s: String = uri_str.into();
+        log::info!("DropHelper onDrop received URI: {uri_s}");
+        if let Some((name, bytes)) = read_content_or_file_uri(&uri_s) {
+            enqueue_pending_file(name, bytes);
+        }
+    }
+}
+
+/// Reads content bytes and resolves file name from a content:// or file:// URI.
+pub fn read_content_or_file_uri(uri_str: &str) -> Option<(String, Vec<u8>)> {
+    let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
+    let act_ptr = ANDROID_ACTIVITY.load(Ordering::SeqCst);
+    if vm_ptr.is_null() || act_ptr.is_null() {
+        return None;
+    }
+
+    unsafe {
+        let vm = match jni::JavaVM::from_raw(vm_ptr.cast()) {
+            Ok(v) => v,
+            Err(_) => return None,
+        };
+        let mut env = match vm.attach_current_thread() {
+            Ok(e) => e,
+            Err(_) => return None,
+        };
+        let activity = JObject::from_raw(act_ptr as jni::sys::jobject);
+
+        // If it starts with file:// or a local path:
+        let local_path = if uri_str.starts_with("file://") {
+            Some(&uri_str[7..])
+        } else if uri_str.starts_with('/') {
+            Some(uri_str)
+        } else {
+            None
+        };
+
+        if let Some(path_str) = local_path {
+            let path = std::path::Path::new(path_str);
+            if let Ok(bytes) = std::fs::read(path) {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "document.psd".to_string());
+                return Some((name, bytes));
+            }
+        }
+
+        let uri_class = match env.find_class("android/net/Uri") {
+            Ok(c) => c,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return None;
+            }
+        };
+
+        let uri_jstr = match env.new_string(uri_str) {
+            Ok(s) => s,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return None;
+            }
+        };
+
+        let uri_obj = match env.call_static_method(
+            uri_class,
+            "parse",
+            "(Ljava/lang/String;)Landroid/net/Uri;",
+            &[JValue::Object(&uri_jstr)],
+        ) {
+            Ok(v) => match v.l() {
+                Ok(u) => u,
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    return None;
+                }
+            },
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return None;
+            }
+        };
+
+        let resolver = match env.call_method(&activity, "getContentResolver", "()Landroid/content/ContentResolver;", &[]) {
+            Ok(v) => match v.l() {
+                Ok(r) => r,
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    return None;
+                }
+            },
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return None;
+            }
+        };
+
+        // Query OpenableColumns.DISPLAY_NAME ("_display_name")
+        let mut file_name = String::new();
+        if let Ok(col_name) = env.new_string("_display_name") {
+            if let Ok(string_cls) = env.find_class("java/lang/String") {
+                if let Ok(proj_array) = env.new_object_array(1, string_cls, &col_name) {
+                    let null_obj = JObject::null();
+                    let cursor_res = env.call_method(
+                        &resolver,
+                        "query",
+                        "(Landroid/net/Uri;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)Landroid/database/Cursor;",
+                        &[
+                            JValue::Object(&uri_obj),
+                            JValue::Object(&proj_array),
+                            JValue::Object(&null_obj),
+                            JValue::Object(&null_obj),
+                            JValue::Object(&null_obj),
+                        ],
+                    );
+                    if let Ok(c_val) = cursor_res {
+                        if let Ok(c) = c_val.l() {
+                            if !c.is_null() {
+                                if let Ok(first) = env.call_method(&c, "moveToFirst", "()Z", &[]) {
+                                    if first.z().unwrap_or(false) {
+                                        if let Ok(idx_val) = env.call_method(&c, "getColumnIndex", "(Ljava/lang/String;)I", &[JValue::Object(&col_name)]) {
+                                            let col_idx = idx_val.i().unwrap_or(0);
+                                            if col_idx >= 0 {
+                                                if let Ok(str_val) = env.call_method(&c, "getString", "(I)Ljava/lang/String;", &[JValue::Int(col_idx)]) {
+                                                    if let Ok(name_jstr) = str_val.l() {
+                                                        if !name_jstr.is_null() {
+                                                            if let Ok(s) = env.get_string(&JString::from(name_jstr)) {
+                                                                file_name = s.into();
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                let _ = env.call_method(&c, "close", "()V", &[]);
+                                clear_jni_exception(&mut env);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        clear_jni_exception(&mut env);
+
+        if file_name.is_empty() {
+            if let Ok(seg) = env.call_method(&uri_obj, "getLastPathSegment", "()Ljava/lang/String;", &[]) {
+                if let Ok(s) = seg.l() {
+                    if !s.is_null() {
+                        if let Ok(n) = env.get_string(&JString::from(s)) {
+                            file_name = n.into();
+                        }
+                    }
+                }
+            }
+        }
+        if file_name.is_empty() {
+            file_name = "document.psd".to_string();
+        }
+
+        // Open InputStream and read bytes
+        let is_val = match env.call_method(
+            &resolver,
+            "openInputStream",
+            "(Landroid/net/Uri;)Ljava/io/InputStream;",
+            &[JValue::Object(&uri_obj)],
+        ) {
+            Ok(v) => match v.l() {
+                Ok(stream) => stream,
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    return None;
+                }
+            },
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return None;
+            }
+        };
+
+        if is_val.is_null() {
+            return None;
+        }
+
+        let byte_buf = match env.new_byte_array(64 * 1024) {
+            Ok(b) => b,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return None;
+            }
+        };
+
+        let mut all_bytes = Vec::new();
+        loop {
+            let read_res = match env.call_method(&is_val, "read", "([B)I", &[JValue::Object(&byte_buf)]) {
+                Ok(v) => v.i().unwrap_or(-1),
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    break;
+                }
+            };
+            if read_res <= 0 {
+                break;
+            }
+            let mut chunk = vec![0u8; read_res as usize];
+            let raw_chunk = std::slice::from_raw_parts_mut(chunk.as_mut_ptr() as *mut i8, read_res as usize);
+            let _ = env.get_byte_array_region(&byte_buf, 0, raw_chunk);
+            all_bytes.extend_from_slice(&chunk);
+        }
+        let _ = env.call_method(&is_val, "close", "()V", &[]);
+        clear_jni_exception(&mut env);
+
+        Some((file_name, all_bytes))
+    }
+}
+
+/// Checks if activity.getIntent() contains a content or file URI (e.g. from "Open With"),
+/// and clears it so it is not processed repeatedly.
+pub fn check_and_clear_activity_intent() -> Option<String> {
+    let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
+    let act_ptr = ANDROID_ACTIVITY.load(Ordering::SeqCst);
+    if vm_ptr.is_null() || act_ptr.is_null() {
+        return None;
+    }
+
+    unsafe {
+        let vm = match jni::JavaVM::from_raw(vm_ptr.cast()) {
+            Ok(v) => v,
+            Err(_) => return None,
+        };
+        let mut env = match vm.attach_current_thread() {
+            Ok(e) => e,
+            Err(_) => return None,
+        };
+        let activity = JObject::from_raw(act_ptr as jni::sys::jobject);
+
+        let intent_val = match env.call_method(&activity, "getIntent", "()Landroid/content/Intent;", &[]) {
+            Ok(v) => match v.l() {
+                Ok(i) => i,
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    return None;
+                }
+            },
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return None;
+            }
+        };
+
+        if intent_val.is_null() {
+            return None;
+        }
+
+        // Check intent.getData()
+        if let Ok(uri_val) = env.call_method(&intent_val, "getData", "()Landroid/net/Uri;", &[]) {
+            if let Ok(uri) = uri_val.l() {
+                if !uri.is_null() {
+                    if let Ok(str_obj) = env.call_method(&uri, "toString", "()Ljava/lang/String;", &[]) {
+                        if let Ok(s) = str_obj.l() {
+                            if !s.is_null() {
+                                if let Ok(jstr) = env.get_string(&JString::from(s)) {
+                                    let result: String = jstr.into();
+                                    let null_obj = JObject::null();
+                                    let _ = env.call_method(&intent_val, "setData", "(Landroid/net/Uri;)Landroid/content/Intent;", &[JValue::Object(&null_obj)]);
+                                    clear_jni_exception(&mut env);
+                                    if !result.is_empty() {
+                                        return Some(result);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        clear_jni_exception(&mut env);
+
+        // Check intent.getClipData()
+        if let Ok(clip_val) = env.call_method(&intent_val, "getClipData", "()Landroid/content/ClipData;", &[]) {
+            if let Ok(clip) = clip_val.l() {
+                if !clip.is_null() {
+                    let count = env.call_method(&clip, "getItemCount", "()I", &[]).map(|v| v.i().unwrap_or(0)).unwrap_or(0);
+                    if count > 0 {
+                        if let Ok(item_val) = env.call_method(&clip, "getItemAt", "(I)Landroid/content/ClipData$Item;", &[JValue::Int(0)]) {
+                            if let Ok(item) = item_val.l() {
+                                if !item.is_null() {
+                                    if let Ok(uri_val) = env.call_method(&item, "getUri", "()Landroid/net/Uri;", &[]) {
+                                        if let Ok(uri) = uri_val.l() {
+                                            if !uri.is_null() {
+                                                if let Ok(str_obj) = env.call_method(&uri, "toString", "()Ljava/lang/String;", &[]) {
+                                                    if let Ok(s) = str_obj.l() {
+                                                        if !s.is_null() {
+                                                            if let Ok(jstr) = env.get_string(&JString::from(s)) {
+                                                                let result: String = jstr.into();
+                                                                let null_obj = JObject::null();
+                                                                let _ = env.call_method(&intent_val, "setClipData", "(Landroid/content/ClipData;)V", &[JValue::Object(&null_obj)]);
+                                                                clear_jni_exception(&mut env);
+                                                                if !result.is_empty() {
+                                                                    return Some(result);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        clear_jni_exception(&mut env);
+
+        None
+    }
+}
+
+/// Initializes DropHelper via direct ClassLoader or InMemoryDexClassLoader from assets/classes.dex.
+pub fn init_drop_helper_if_needed() {
+    if DROP_HELPER_INITIALIZED.load(Ordering::SeqCst) {
+        return;
+    }
+
     let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
     let act_ptr = ANDROID_ACTIVITY.load(Ordering::SeqCst);
     if vm_ptr.is_null() || act_ptr.is_null() {
@@ -37,17 +388,31 @@ pub fn set_immersive_sticky() {
             Ok(v) => v,
             Err(_) => return,
         };
-
         let mut env = match vm.attach_current_thread() {
             Ok(e) => e,
             Err(_) => return,
         };
-
         let activity = JObject::from_raw(act_ptr as jni::sys::jobject);
 
-        let window_val = match env.call_method(&activity, "getWindow", "()Landroid/view/Window;", &[]) {
+        // 1. Check if DropHelper is directly available
+        if let Ok(helper_cls) = env.find_class("ai/storyteller/photocraft/DropHelper") {
+            log::info!("DropHelper class found directly in ClassLoader");
+            let _ = env.call_static_method(
+                &helper_cls,
+                "attach",
+                "(Landroid/app/Activity;)V",
+                &[JValue::Object(&activity)],
+            );
+            clear_jni_exception(&mut env);
+            DROP_HELPER_INITIALIZED.store(true, Ordering::SeqCst);
+            return;
+        }
+        clear_jni_exception(&mut env);
+
+        // 2. Load classes.dex from assets using AssetManager
+        let asset_mgr = match env.call_method(&activity, "getAssets", "()Landroid/content/res/AssetManager;", &[]) {
             Ok(v) => match v.l() {
-                Ok(w) => w,
+                Ok(am) => am,
                 Err(_) => {
                     clear_jni_exception(&mut env);
                     return;
@@ -59,9 +424,17 @@ pub fn set_immersive_sticky() {
             }
         };
 
-        let decor_val = match env.call_method(&window_val, "getDecorView", "()Landroid/view/View;", &[]) {
+        let dex_name = match env.new_string("classes.dex") {
+            Ok(s) => s,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
+        };
+
+        let is_val = match env.call_method(&asset_mgr, "open", "(Ljava/lang/String;)Ljava/io/InputStream;", &[JValue::Object(&dex_name)]) {
             Ok(v) => match v.l() {
-                Ok(d) => d,
+                Ok(s) => s,
                 Err(_) => {
                     clear_jni_exception(&mut env);
                     return;
@@ -73,16 +446,285 @@ pub fn set_immersive_sticky() {
             }
         };
 
-        // Combined flags for IMMERSIVE_STICKY fullscreen:
-        // LAYOUT_STABLE(256) | LAYOUT_HIDE_NAV(512) | LAYOUT_FULLSCREEN(1024)
-        // | HIDE_NAV(2) | FULLSCREEN(4) | IMMERSIVE_STICKY(4096) = 5894
-        let flags: i32 = 5894;
+        if is_val.is_null() {
+            return;
+        }
 
-        let _ = env.call_method(&decor_val, "setSystemUiVisibility", "(I)V", &[JValue::Int(flags)]);
+        let mut dex_bytes = Vec::new();
+        let buf = match env.new_byte_array(16 * 1024) {
+            Ok(b) => b,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
+        };
+
+        loop {
+            let read_count = match env.call_method(&is_val, "read", "([B)I", &[JValue::Object(&buf)]) {
+                Ok(v) => v.i().unwrap_or(-1),
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    break;
+                }
+            };
+            if read_count <= 0 {
+                break;
+            }
+            let mut chunk = vec![0u8; read_count as usize];
+            let raw_chunk = std::slice::from_raw_parts_mut(chunk.as_mut_ptr() as *mut i8, read_count as usize);
+            let _ = env.get_byte_array_region(&buf, 0, raw_chunk);
+            dex_bytes.extend_from_slice(&chunk);
+        }
+        let _ = env.call_method(&is_val, "close", "()V", &[]);
         clear_jni_exception(&mut env);
 
-        let _ = env.call_method(&window_val, "addFlags", "(I)V", &[JValue::Int(1024)]);
+        if dex_bytes.is_empty() {
+            log::warn!("classes.dex in assets was empty or not found");
+            return;
+        }
+
+        log::info!("Loaded {} bytes of classes.dex from assets", dex_bytes.len());
+        let leaked_dex = Box::leak(dex_bytes.into_boxed_slice());
+        let byte_buffer = match env.new_direct_byte_buffer(leaked_dex.as_mut_ptr(), leaked_dex.len()) {
+            Ok(bb) => bb,
+            Err(e) => {
+                clear_jni_exception(&mut env);
+                log::error!("Failed to create direct ByteBuffer: {e}");
+                return;
+            }
+        };
+
+        let class_loader = match env.call_method(&activity, "getClassLoader", "()Ljava/lang/ClassLoader;", &[]) {
+            Ok(v) => match v.l() {
+                Ok(cl) => cl,
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    return;
+                }
+            },
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
+        };
+
+        let in_memory_loader_cls = match env.find_class("dalvik/system/InMemoryDexClassLoader") {
+            Ok(c) => c,
+            Err(e) => {
+                clear_jni_exception(&mut env);
+                log::error!("Failed to find InMemoryDexClassLoader: {e}");
+                return;
+            }
+        };
+
+        let loader = match env.new_object(
+            &in_memory_loader_cls,
+            "(Ljava/nio/ByteBuffer;Ljava/lang/ClassLoader;)V",
+            &[JValue::Object(&byte_buffer), JValue::Object(&class_loader)],
+        ) {
+            Ok(l) => l,
+            Err(e) => {
+                clear_jni_exception(&mut env);
+                log::error!("Failed to instantiate InMemoryDexClassLoader: {e}");
+                return;
+            }
+        };
+
+        let class_name = match env.new_string("ai.storyteller.photocraft.DropHelper") {
+            Ok(s) => s,
+            Err(_) => {
+                clear_jni_exception(&mut env);
+                return;
+            }
+        };
+
+        let loaded_class = match env.call_method(
+            &loader,
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+            &[JValue::Object(&class_name)],
+        ) {
+            Ok(v) => match v.l() {
+                Ok(c) => c,
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    return;
+                }
+            },
+            Err(e) => {
+                clear_jni_exception(&mut env);
+                log::error!("Failed to loadClass ai.storyteller.photocraft.DropHelper: {e}");
+                return;
+            }
+        };
+
+        let _ = env.call_static_method(
+            &loaded_class,
+            "attach",
+            "(Landroid/app/Activity;)V",
+            &[JValue::Object(&activity)],
+        );
         clear_jni_exception(&mut env);
+
+        DROP_HELPER_INITIALIZED.store(true, Ordering::SeqCst);
+        log::info!("DropHelper attached successfully via InMemoryDexClassLoader!");
+    }
+}
+
+/// Changes the system mouse hover cursor icon on Googlebook OS / Android 7.0+.
+pub fn set_android_pointer_icon(icon: egui::CursorIcon) {
+    let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
+    let act_ptr = ANDROID_ACTIVITY.load(Ordering::SeqCst);
+    if vm_ptr.is_null() || act_ptr.is_null() {
+        return;
+    }
+
+    unsafe {
+        let vm = match jni::JavaVM::from_raw(vm_ptr.cast()) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let mut env = match vm.attach_current_thread() {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        let activity = JObject::from_raw(act_ptr as jni::sys::jobject);
+
+        let pointer_type: i32 = match icon {
+            egui::CursorIcon::Default => 1000, // TYPE_ARROW
+            egui::CursorIcon::PointingHand => 1002, // TYPE_HAND
+            egui::CursorIcon::Text | egui::CursorIcon::VerticalText => 1008, // TYPE_TEXT
+            egui::CursorIcon::Crosshair => 1007, // TYPE_CROSSHAIR
+            egui::CursorIcon::ResizeHorizontal
+            | egui::CursorIcon::ResizeEast
+            | egui::CursorIcon::ResizeWest
+            | egui::CursorIcon::ResizeColumn => 1014, // TYPE_HORIZONTAL_DOUBLE_ARROW
+            egui::CursorIcon::ResizeVertical
+            | egui::CursorIcon::ResizeNorth
+            | egui::CursorIcon::ResizeSouth
+            | egui::CursorIcon::ResizeRow => 1015, // TYPE_VERTICAL_DOUBLE_ARROW
+            egui::CursorIcon::ResizeNorthEast
+            | egui::CursorIcon::ResizeSouthWest
+            | egui::CursorIcon::ResizeNeSw => 1016, // TYPE_TOP_RIGHT_DIAGONAL_DOUBLE_ARROW
+            egui::CursorIcon::ResizeNorthWest
+            | egui::CursorIcon::ResizeSouthEast
+            | egui::CursorIcon::ResizeNwSe => 1017, // TYPE_TOP_LEFT_DIAGONAL_DOUBLE_ARROW
+            egui::CursorIcon::Grab => 1020, // TYPE_GRAB
+            egui::CursorIcon::Grabbing => 1021, // TYPE_GRABBING
+            egui::CursorIcon::NotAllowed | egui::CursorIcon::NoDrop => 1012, // TYPE_NO_DROP
+            egui::CursorIcon::Wait | egui::CursorIcon::Progress => 1004, // TYPE_WAIT
+            egui::CursorIcon::Help => 1003, // TYPE_HELP
+            egui::CursorIcon::Copy => 1011, // TYPE_COPY
+            egui::CursorIcon::ZoomIn => 1018, // TYPE_ZOOM_IN
+            egui::CursorIcon::ZoomOut => 1019, // TYPE_ZOOM_OUT
+            egui::CursorIcon::AllScroll | egui::CursorIcon::Move => 1013, // TYPE_ALL_SCROLL
+            _ => 1000,
+        };
+
+        // Try calling DropHelper.setPointerIcon(activity, pointer_type) on UI thread
+        if let Ok(helper_cls) = env.find_class("ai/storyteller/photocraft/DropHelper") {
+            let res = env.call_static_method(
+                &helper_cls,
+                "setPointerIcon",
+                "(Landroid/app/Activity;I)V",
+                &[JValue::Object(&activity), JValue::Int(pointer_type)],
+            );
+            if res.is_ok() {
+                clear_jni_exception(&mut env);
+                return;
+            }
+        }
+        clear_jni_exception(&mut env);
+
+        // Fallback to direct JNI on decorView
+        if let Ok(window_val) = env.call_method(&activity, "getWindow", "()Landroid/view/Window;", &[]) {
+            if let Ok(w) = window_val.l() {
+                if let Ok(decor_val) = env.call_method(&w, "getDecorView", "()Landroid/view/View;", &[]) {
+                    if let Ok(d) = decor_val.l() {
+                        if let Ok(pointer_icon_class) = env.find_class("android/view/PointerIcon") {
+                            if let Ok(icon_val) = env.call_static_method(
+                                pointer_icon_class,
+                                "getSystemIcon",
+                                "(Landroid/content/Context;I)Landroid/view/PointerIcon;",
+                                &[JValue::Object(&activity), JValue::Int(pointer_type)],
+                            ) {
+                                if let Ok(i) = icon_val.l() {
+                                    let _ = env.call_method(&d, "setPointerIcon", "(Landroid/view/PointerIcon;)V", &[JValue::Object(&i)]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        clear_jni_exception(&mut env);
+    }
+}
+
+/// Queries the top window caption / status bar inset in physical pixels.
+pub fn get_window_caption_top_inset() -> f32 {
+    let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
+    let act_ptr = ANDROID_ACTIVITY.load(Ordering::SeqCst);
+    if vm_ptr.is_null() || act_ptr.is_null() {
+        return 0.0;
+    }
+
+    unsafe {
+        let vm = match jni::JavaVM::from_raw(vm_ptr.cast()) {
+            Ok(v) => v,
+            Err(_) => return 0.0,
+        };
+        let mut env = match vm.attach_current_thread() {
+            Ok(e) => e,
+            Err(_) => return 0.0,
+        };
+        let activity = JObject::from_raw(act_ptr as jni::sys::jobject);
+
+        if let Ok(helper_cls) = env.find_class("ai/storyteller/photocraft/DropHelper") {
+            if let Ok(res) = env.call_static_method(
+                &helper_cls,
+                "getCaptionTopInset",
+                "(Landroid/app/Activity;)I",
+                &[JValue::Object(&activity)],
+            ) {
+                let inset = res.i().unwrap_or(0);
+                if inset > 0 {
+                    clear_jni_exception(&mut env);
+                    return inset as f32;
+                }
+            }
+        }
+        clear_jni_exception(&mut env);
+
+        // Fallback: query decorView.getRootWindowInsets()
+        if let Ok(window_val) = env.call_method(&activity, "getWindow", "()Landroid/view/Window;", &[]) {
+            if let Ok(w) = window_val.l() {
+                if let Ok(decor_val) = env.call_method(&w, "getDecorView", "()Landroid/view/View;", &[]) {
+                    if let Ok(d) = decor_val.l() {
+                        if let Ok(insets_val) = env.call_method(&d, "getRootWindowInsets", "()Landroid/view/WindowInsets;", &[]) {
+                            if let Ok(ins) = insets_val.l() {
+                                if !ins.is_null() {
+                                    // WindowInsets.Type.captionBar() = 4 | statusBars() = 1 => 5
+                                    if let Ok(insets_res) = env.call_method(&ins, "getInsets", "(I)Landroid/graphics/Insets;", &[JValue::Int(5)]) {
+                                        if let Ok(insets_obj) = insets_res.l() {
+                                            if !insets_obj.is_null() {
+                                                if let Ok(top) = env.get_field(&insets_obj, "top", "I") {
+                                                    let top_i = top.i().unwrap_or(0);
+                                                    clear_jni_exception(&mut env);
+                                                    return top_i as f32;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        clear_jni_exception(&mut env);
+        0.0
     }
 }
 
@@ -254,7 +896,7 @@ pub fn open_app_storage_settings() {
             }
         };
 
-        let pkg_jstr = jni::objects::JString::from(pkg_obj);
+        let pkg_jstr = JString::from(pkg_obj);
         let pkg_name: String = match env.get_string(&pkg_jstr) {
             Ok(s) => s.into(),
             Err(_) => {
@@ -362,7 +1004,10 @@ struct AndroidShell {
     services: Option<Services>,
     file_picker: FilePickerState,
     wgpu_state: Option<eframe::egui_wgpu::RenderState>,
-    frames_since_immersive: u32,
+    frames_since_start: u32,
+    last_cursor_icon: egui::CursorIcon,
+    caption_top_inset_points: f32,
+    manual_top_offset: f32,
 }
 
 impl AndroidShell {
@@ -382,8 +1027,6 @@ impl AndroidShell {
             fp_clone.open_dialog(request, reply);
         }));
 
-        set_immersive_sticky();
-
         Self {
             state: AndroidState::Onboarding(OnboardingData::default()),
             zoom_factor: 1.0,
@@ -392,7 +1035,10 @@ impl AndroidShell {
             services: Some(services),
             file_picker,
             wgpu_state: cc.wgpu_render_state.clone(),
-            frames_since_immersive: 0,
+            frames_since_start: 0,
+            last_cursor_icon: egui::CursorIcon::Default,
+            caption_top_inset_points: 0.0,
+            manual_top_offset: 0.0,
         }
     }
 }
@@ -404,9 +1050,66 @@ impl eframe::App for AndroidShell {
             self.last_applied_zoom = self.zoom_factor;
         }
 
-        self.frames_since_immersive += 1;
-        if self.frames_since_immersive == 10 || self.frames_since_immersive == 120 {
-            set_immersive_sticky();
+        self.frames_since_start += 1;
+        if self.frames_since_start == 5 || self.frames_since_start == 30 || self.frames_since_start == 120 {
+            init_drop_helper_if_needed();
+            let top_px = get_window_caption_top_inset();
+            if top_px > 0.0 {
+                self.caption_top_inset_points = top_px / ctx.pixels_per_point();
+            }
+        }
+
+        // Bug 1: Mouse Hover / Cursor Icon changes on Googlebook OS & Android desktop
+        let current_cursor = ctx.output(|o| o.cursor_icon);
+        if current_cursor != self.last_cursor_icon {
+            set_android_pointer_icon(current_cursor);
+            self.last_cursor_icon = current_cursor;
+        }
+
+        // Bug 3: Check for pending file from Android Intent (e.g. clicking .psd file in Files/Drive)
+        if self.frames_since_start % 30 == 0 || self.frames_since_start == 2 {
+            if let Some(uri_str) = check_and_clear_activity_intent() {
+                log::info!("Discovered file from Android Intent: {uri_str}");
+                if let Some((name, bytes)) = read_content_or_file_uri(&uri_str) {
+                    enqueue_pending_file(name, bytes);
+                }
+            }
+        }
+
+        // Process queued files (from Intent click or Drag & Drop from Google Drive / Downloads)
+        let files_to_open = take_pending_files();
+        for (name, bytes) in files_to_open {
+            log::info!("Opening document in PhotoCraft: {} ({} bytes)", name, bytes.len());
+            match &mut self.state {
+                AndroidState::Running(app) => {
+                    match app.open_file(&name, &bytes) {
+                        Ok(warnings) => {
+                            log::info!("Successfully opened {name}. Warnings: {warnings:?}");
+                        }
+                        Err(e) => {
+                            log::error!("Failed to open {name}: {e}");
+                        }
+                    }
+                }
+                AndroidState::Onboarding(_) => {
+                    let session = self.session.take().unwrap_or_default();
+                    let services = self.services.take().unwrap_or_default();
+                    let mut app = PhotocraftApp::new(session, services);
+                    app.set_theme(ctx, ThemeKind::Pro);
+                    if let Some(rs) = self.wgpu_state.clone() {
+                        app.set_wgpu(rs);
+                    }
+                    match app.open_file(&name, &bytes) {
+                        Ok(warnings) => {
+                            log::info!("Successfully opened {name} from onboarding. Warnings: {warnings:?}");
+                        }
+                        Err(e) => {
+                            log::error!("Failed to open {name}: {e}");
+                        }
+                    }
+                    self.state = AndroidState::Running(Box::new(app));
+                }
+            }
         }
 
         if let AndroidState::Running(app) = &mut self.state {
@@ -426,6 +1129,18 @@ impl eframe::App for AndroidShell {
         let mut switch_to_onboarding = false;
 
         let storage_granted = has_storage_permission();
+
+        // Bug 6: Inset spacer to prevent Googlebook OS system window caption bar from covering PhotoCraft
+        let total_top_offset = (self.caption_top_inset_points + self.manual_top_offset).max(0.0);
+        if total_top_offset > 0.0 {
+            egui::TopBottomPanel::top("googlebook_caption_spacer")
+                .frame(egui::Frame::none())
+                .show_separator_line(false)
+                .exact_height(total_top_offset)
+                .show(ui, |_ui| {
+                    // Transparent spacer ensuring options bar starts cleanly below window caption
+                });
+        }
 
         match &mut self.state {
             AndroidState::Onboarding(data) => {
@@ -451,7 +1166,7 @@ impl eframe::App for AndroidShell {
 
                 egui::Panel::top("android_mobile_bar").show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("PhotoCraft Android").small().strong());
+                        ui.label(egui::RichText::new("PhotoCraft").small().strong());
                         ui.separator();
                         ui.label(egui::RichText::new("Zoom:").small());
                         if ui.button("➖").clicked() && current_zoom > 0.6 {
@@ -460,6 +1175,15 @@ impl eframe::App for AndroidShell {
                         ui.label(egui::RichText::new(format!("{:.0}%", current_zoom * 100.0)).small());
                         if ui.button("➕").clicked() && current_zoom < 1.5 {
                             zoom_delta += 0.05;
+                        }
+                        ui.separator();
+                        ui.label(egui::RichText::new("Barra:").small());
+                        if ui.button("➖").clicked() {
+                            self.manual_top_offset = (self.manual_top_offset - 4.0).max(-40.0);
+                        }
+                        ui.label(egui::RichText::new(format!("{:.0}pt", total_top_offset)).small());
+                        if ui.button("➕").clicked() {
+                            self.manual_top_offset = (self.manual_top_offset + 4.0).min(100.0);
                         }
                         ui.separator();
                         if ui.button(egui::RichText::new("Assistente").small()).clicked() {
@@ -488,13 +1212,11 @@ impl eframe::App for AndroidShell {
                 app.set_wgpu(rs);
             }
             self.state = AndroidState::Running(Box::new(app));
-            set_immersive_sticky();
         } else if switch_to_onboarding {
             let mut data = OnboardingData::default();
             data.zoom_factor = self.zoom_factor;
             data.permissions_requested = storage_granted;
             self.state = AndroidState::Onboarding(data);
-            set_immersive_sticky();
         }
     }
 }
@@ -509,7 +1231,7 @@ fn android_main(app: AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    log::info!("PhotoCraft Android & Googlebook OS v0.1.4 starting up");
+    log::info!("PhotoCraft Android & Googlebook OS v0.1.5 starting up");
 
     ANDROID_VM.store(app.vm_as_ptr(), Ordering::SeqCst);
     ANDROID_ACTIVITY.store(app.activity_as_ptr(), Ordering::SeqCst);

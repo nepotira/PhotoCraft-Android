@@ -4,6 +4,31 @@ Todas as alterações notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [0.1.5-android] - 2026-10-30 (Build 7)
+*Base Upstream: PhotoCraft v0.17.0 (Sincronizado)*
+
+### ✨ Recursos & Otimizações Desktop (Googlebook OS & Samsung DeX)
+- **[FEAT-003] Suporte a Drag & Drop Global (Google Drive & Downloads)**:
+  - Implementado listener nativo `OnDragListener` acoplado via `InMemoryDexClassLoader` com concessão de permissão sob demanda via `activity.requestDragAndDropPermissions(event)`. Permite arrastar arquivos `.psd`, imagens e outros formatos diretamente do Google Drive ou da pasta Downloads para dentro do PhotoCraft.
+- **[FEAT-004] Mudança Dinâmica do Cursor do Mouse (Hover)**:
+  - Conexão em tempo real entre o `egui::CursorIcon` e a API `android.view.PointerIcon` do Android 7.0+ / GooglebookOS, com despacho direto na thread UI (`TYPE_ARROW`, `TYPE_HAND`, `TYPE_TEXT`, `TYPE_CROSSHAIR`, `TYPE_HORIZONTAL_DOUBLE_ARROW`, `TYPE_VERTICAL_DOUBLE_ARROW`, `TYPE_GRAB`, `TYPE_GRABBING`, etc.).
+- **[FEAT-005] Associação de Tipos de Arquivo `.psd`**:
+  - Declarados intent filters para ações `VIEW`, `EDIT` e `SEND` nos esquemas `content` e `file` com tipos MIME `image/vnd.adobe.photoshop`, `image/x-photoshop`, `application/x-photoshop`, `image/psd`. Clicar em qualquer arquivo `.psd` no sistema agora abre o PhotoCraft e carrega o documento automaticamente.
+- **[FEAT-006] Compensação Inteligente da Barra de Título do Googlebook OS**:
+  - Substituição de `Theme.NoTitleBar.Fullscreen` por `Theme.DeviceDefault.NoActionBar`, leitura de `WindowInsets.Type.captionBar()` e adição de espaçador superior responsivo com botões de ajuste fino `[Barra: ➖ XXpt ➕]`, eliminando sobreposições dos menus pelas decorações da janela.
+- **[SYNC-001] Sincronização Obrigatória com Base Upstream (`storytold/photocraft`)**:
+  - Incorporadas 5.393 atualizações upstream (versão base `v0.17.0`), preservando todas as adaptações mobile (gestos de pinça multitoque no canvas, layout responsivo de diálogos e runner Android).
+
+### 🛠️ Correções de Erros (Bug Fixes)
+- **[BUG-018] / [FIX-018] Correção do Hover do Mouse**: Ícone do ponteiro agora atualiza dinamicamente sobre botões, canvas, réguas e divisores.
+- **[BUG-019] / [FIX-019] Correção do Ícone Oficial no Launcher**: Metadados `icon = "@mipmap/ic_launcher"` adicionados nas tags `application` e `activity` do `Cargo.toml`.
+- **[BUG-020] / [FIX-020] Abertura de PSD via Intent**: Captura de URIs em `getIntent()` e decodificação via `ContentResolver`.
+- **[BUG-021] / [FIX-021] Drag & Drop do Google Drive**: Permissões de leitura cruzada desbloqueadas via `requestDragAndDropPermissions`.
+- **[BUG-022] / [FIX-022] Drag & Drop de Downloads**: Acesso e ingestão automática de arquivos locais arrastados.
+- **[BUG-023] / [FIX-023] Fim da Sobreposição da Barra Superior**: Menus do PhotoCraft iniciam perfeitamente abaixo da barra de título do Googlebook OS.
+
+---
+
 ## [0.1.4-android] - 2026-10-29 (Build 6)
 *Base Upstream: PhotoCraft v0.17.0*
 

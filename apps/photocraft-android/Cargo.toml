@@ -1,7 +1,7 @@
 [package]
 name = "photocraft-android"
-description = "PhotoCraft Android & Googlebook OS v0.1.4 (based on upstream v0.17.0) by Nepo"
-version = "0.1.4"
+description = "PhotoCraft Android & Googlebook OS v0.1.5 (based on upstream v0.17.0) by Nepo"
+version = "0.1.5"
 edition.workspace = true
 license.workspace = true
 publish = false
@@ -15,9 +15,49 @@ package = "ai.storyteller.photocraft"
 apk_label = "PhotoCraft"
 icon = "@mipmap/ic_launcher"
 resources = "res"
+assets = "assets"
 build_targets = ["aarch64-linux-android", "x86_64-linux-android"]
+
+[package.metadata.android.application]
+label = "PhotoCraft"
+icon = "@mipmap/ic_launcher"
+theme = "@android:style/Theme.DeviceDefault.NoActionBar"
+
+[package.metadata.android.application.activity]
+label = "PhotoCraft"
+icon = "@mipmap/ic_launcher"
 resizeable_activity = true
-fullscreen = true
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.MAIN"]
+categories = ["android.intent.category.LAUNCHER"]
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW", "android.intent.action.EDIT", "android.intent.action.SEND"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"]
+
+[[package.metadata.android.application.activity.intent_filter.data]]
+mime_type = "image/vnd.adobe.photoshop"
+[[package.metadata.android.application.activity.intent_filter.data]]
+mime_type = "image/x-photoshop"
+[[package.metadata.android.application.activity.intent_filter.data]]
+mime_type = "application/x-photoshop"
+[[package.metadata.android.application.activity.intent_filter.data]]
+mime_type = "application/photoshop"
+[[package.metadata.android.application.activity.intent_filter.data]]
+mime_type = "image/psd"
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "content"
+path_pattern = ".*\\.psd"
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "file"
+path_pattern = ".*\\.psd"
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "content"
+path_pattern = ".*\\.PSD"
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "file"
+path_pattern = ".*\\.PSD"
 
 [package.metadata.android.sdk]
 min_sdk_version = 26
