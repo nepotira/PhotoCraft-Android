@@ -4,6 +4,27 @@ Todas as alterações notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [0.1.6-android] - 2026-10-30 (Build 8)
+*Base Upstream: PhotoCraft v0.17.0 (Sincronizado)*
+
+### 🛠️ Correções de Erros & Aprimoramentos Críticos (Bug Fixes)
+- **[BUG-024] / [FIX-024] Correção do Erro 'no importer configured' ao Abrir Arquivos PSD**:
+  - *Sintoma*: Ao clicar em arquivos como `3mam11_black_golden.psd` ou abrir documentos no Android/Googlebook OS, o app reportava a falha `no importer configured` e impedia o carregamento.
+  - *Causa Raiz*: `apps/photocraft-android/src/lib.rs` inicializava `Services::default()` sem configurar `services.import`, que permanecia `None`. Em `crates/ui-egui/src/app/files.rs:71`, `open_bytes_from` exige `self.services.import.as_ref().ok_or("no importer configured")?`.
+  - *Solução*: Conectados os serviços essenciais de decodificação e exportação do motor Photocraft (`services.import` via `photocraft_io::import_with_options`, `services.export` via `photocraft_io::export`, `services.save_file`, `services.write`, `services.file_stamp` e `services.same_file`). Arquivos `.psd` abrem com suas camadas, máscaras e modos de mesclagem perfeitamente renderizados.
+- **[BUG-025] / [FIX-025] Injeção de classes.dex no ClassLoader Primário e Correção do Hover do Mouse**:
+  - *Sintoma*: O cursor do mouse não mudava para mão, texto, cruz ou redimensionamento ao passar sobre os elementos da interface no Googlebook OS.
+  - *Causa Raiz*: (1) A classe `DropHelper` carregada via `InMemoryDexClassLoader` não podia ser resolvida por `env.find_class()` durante o loop de eventos na thread Rust; (2) O fallback tentava alterar o cursor invocando diretamente `decorView.setPointerIcon` fora da thread de interface, disparando `CalledFromWrongThreadException`.
+  - *Solução*: (a) Salva referência global JNI (`DROP_HELPER_CLASS`) garantindo acesso universal de qualquer thread; (b) No CI `.github/workflows/android.yml`, `classes.dex` é injetado diretamente na raiz do APK e reassinado com `apksigner` e a `release.keystore`, integrando-o ao `PathClassLoader` nativo do Android; (c) Despacho estrito de `setPointerIcon` via `activity.runOnUiThread()` cobrindo `decorView` e `contentView`; (d) Atualização de cursor posicionada imediatamente após a avaliação da UI no `AndroidShell::ui`.
+- **[BUG-026] / [FIX-026] Drag & Drop Failsafe para Google Drive e Downloads**:
+  - *Sintoma*: O arrastar de arquivos do Google Drive ou da pasta local Downloads para dentro do PhotoCraft não abria os arquivos.
+  - *Causa Raiz*: O binding JNI nativo para `onDrop` falhava silenciosamente entre classloaders isolados e as permissões de URI concedidas por `activity.requestDragAndDropPermissions(event)` eram prematuramente coletadas pelo GC antes da leitura dos dados pelo `ContentResolver`.
+  - *Solução*: (a) Criada fila estática thread-safe `PENDING_DROPS` em Java (`queueDrop` e `pollDrop`), possibilitando polling ativo e seguro a cada ciclo de renderização no Rust; (b) Retenção estática de `sLastPermissions` mantendo os direitos de acesso ao Content Provider concedidos pelo sistema ativos durante a leitura; (c) Anexação dupla de listeners de drag na raiz da janela e no container de conteúdo; (d) Suporte unificado para extração de URIs e dados textuais.
+- **[BUG-027] / [FIX-027] Intent Filters Abrangentes para Arquivos PSD**:
+  - *Solução*: Expandidos os intent filters em `Cargo.toml` adicionando blocos específicos para `application/octet-stream` e `*/*` com padrões de extensão `.psd` e `.PSD`, assegurando reconhecimento irrestrito do PhotoCraft pelo seletor do sistema no Googlebook OS.
+
+---
+
 ## [0.1.5-android] - 2026-10-30 (Build 7)
 *Base Upstream: PhotoCraft v0.17.0 (Sincronizado)*
 

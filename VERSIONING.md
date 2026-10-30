@@ -70,7 +70,7 @@ Ao lançar uma nova versão, sincronize o campo `version` em `apps/photocraft-an
 ```toml
 [package]
 name = "photocraft-android"
-version = "<MAJOR>.<MINOR>.<PATCH>" # Ex: "0.1.5"
+version = "<MAJOR>.<MINOR>.<PATCH>" # Ex: "0.1.6"
 
 [package.metadata.android]
 package = "ai.storyteller.photocraft"

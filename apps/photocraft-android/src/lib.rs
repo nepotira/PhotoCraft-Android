@@ -18,6 +18,7 @@ use winit::platform::android::activity::AndroidApp;
 
 static ANDROID_VM: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static ANDROID_ACTIVITY: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+static DROP_HELPER_CLASS: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static DROP_HELPER_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static PENDING_FILES: Mutex<Vec<(String, Vec<u8>)>> = Mutex::new(Vec::new());
 
@@ -394,9 +395,14 @@ pub fn init_drop_helper_if_needed() {
         };
         let activity = JObject::from_raw(act_ptr as jni::sys::jobject);
 
-        // 1. Check if DropHelper is directly available
+        // 1. Check if DropHelper is directly available (e.g. from primary APK classloader)
         if let Ok(helper_cls) = env.find_class("ai/storyteller/photocraft/DropHelper") {
-            log::info!("DropHelper class found directly in ClassLoader");
+            log::info!("DropHelper class found directly in primary ClassLoader");
+            if let Ok(global_ref) = env.new_global_ref(&helper_cls) {
+                let raw_ptr = global_ref.as_raw();
+                std::mem::forget(global_ref);
+                DROP_HELPER_CLASS.store(raw_ptr as *mut c_void, Ordering::SeqCst);
+            }
             let _ = env.call_static_method(
                 &helper_cls,
                 "attach",
@@ -409,7 +415,7 @@ pub fn init_drop_helper_if_needed() {
         }
         clear_jni_exception(&mut env);
 
-        // 2. Load classes.dex from assets using AssetManager
+        // 2. Load classes.dex from assets using AssetManager and InMemoryDexClassLoader
         let asset_mgr = match env.call_method(&activity, "getAssets", "()Landroid/content/res/AssetManager;", &[]) {
             Ok(v) => match v.l() {
                 Ok(am) => am,
@@ -559,6 +565,12 @@ pub fn init_drop_helper_if_needed() {
         };
 
         let loaded_class: JClass = loaded_class_obj.into();
+        if let Ok(global_ref) = env.new_global_ref(&loaded_class) {
+            let raw_ptr = global_ref.as_raw();
+            std::mem::forget(global_ref);
+            DROP_HELPER_CLASS.store(raw_ptr as *mut c_void, Ordering::SeqCst);
+        }
+
         let _ = env.call_static_method(
             &loaded_class,
             "attach",
@@ -572,11 +584,11 @@ pub fn init_drop_helper_if_needed() {
     }
 }
 
-/// Changes the system mouse hover cursor icon on Googlebook OS / Android 7.0+.
-pub fn set_android_pointer_icon(icon: egui::CursorIcon) {
+/// Polls dropped files from DropHelper's static thread-safe queue.
+pub fn poll_drop_helper() {
     let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
-    let act_ptr = ANDROID_ACTIVITY.load(Ordering::SeqCst);
-    if vm_ptr.is_null() || act_ptr.is_null() {
+    let class_ptr = DROP_HELPER_CLASS.load(Ordering::SeqCst);
+    if vm_ptr.is_null() || class_ptr.is_null() {
         return;
     }
 
@@ -589,41 +601,92 @@ pub fn set_android_pointer_icon(icon: egui::CursorIcon) {
             Ok(e) => e,
             Err(_) => return,
         };
+        let helper_cls = JClass::from_raw(class_ptr as jni::sys::jclass);
+
+        loop {
+            let res = env.call_static_method(
+                &helper_cls,
+                "pollDrop",
+                "()Ljava/lang/String;",
+                &[],
+            );
+            match res {
+                Ok(val) => match val.l() {
+                    Ok(obj) if !obj.is_null() => {
+                        if let Ok(jstr) = env.get_string(&JString::from(obj)) {
+                            let uri_s: String = jstr.into();
+                            log::info!("Polled dropped URI from DropHelper: {uri_s}");
+                            if let Some((name, bytes)) = read_content_or_file_uri(&uri_s) {
+                                enqueue_pending_file(name, bytes);
+                            }
+                        }
+                    }
+                    _ => break,
+                },
+                Err(_) => {
+                    clear_jni_exception(&mut env);
+                    break;
+                }
+            }
+        }
+        clear_jni_exception(&mut env);
+    }
+}
+
+/// Changes the system mouse hover cursor icon on Googlebook OS / Android 7.0+.
+pub fn set_android_pointer_icon(icon: egui::CursorIcon) {
+    let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
+    let act_ptr = ANDROID_ACTIVITY.load(Ordering::SeqCst);
+    let class_ptr = DROP_HELPER_CLASS.load(Ordering::SeqCst);
+    if vm_ptr.is_null() || act_ptr.is_null() {
+        return;
+    }
+
+    let pointer_type: i32 = match icon {
+        egui::CursorIcon::Default => 1000, // TYPE_ARROW
+        egui::CursorIcon::PointingHand => 1002, // TYPE_HAND
+        egui::CursorIcon::Text | egui::CursorIcon::VerticalText => 1008, // TYPE_TEXT
+        egui::CursorIcon::Crosshair => 1007, // TYPE_CROSSHAIR
+        egui::CursorIcon::ResizeHorizontal
+        | egui::CursorIcon::ResizeEast
+        | egui::CursorIcon::ResizeWest
+        | egui::CursorIcon::ResizeColumn => 1014, // TYPE_HORIZONTAL_DOUBLE_ARROW
+        egui::CursorIcon::ResizeVertical
+        | egui::CursorIcon::ResizeNorth
+        | egui::CursorIcon::ResizeSouth
+        | egui::CursorIcon::ResizeRow => 1015, // TYPE_VERTICAL_DOUBLE_ARROW
+        egui::CursorIcon::ResizeNorthEast
+        | egui::CursorIcon::ResizeSouthWest
+        | egui::CursorIcon::ResizeNeSw => 1016, // TYPE_TOP_RIGHT_DIAGONAL_DOUBLE_ARROW
+        egui::CursorIcon::ResizeNorthWest
+        | egui::CursorIcon::ResizeSouthEast
+        | egui::CursorIcon::ResizeNwSe => 1017, // TYPE_TOP_LEFT_DIAGONAL_DOUBLE_ARROW
+        egui::CursorIcon::Grab => 1020, // TYPE_GRAB
+        egui::CursorIcon::Grabbing => 1021, // TYPE_GRABBING
+        egui::CursorIcon::NotAllowed | egui::CursorIcon::NoDrop => 1012, // TYPE_NO_DROP
+        egui::CursorIcon::Wait | egui::CursorIcon::Progress => 1004, // TYPE_WAIT
+        egui::CursorIcon::Help => 1003, // TYPE_HELP
+        egui::CursorIcon::Copy => 1011, // TYPE_COPY
+        egui::CursorIcon::ZoomIn => 1018, // TYPE_ZOOM_IN
+        egui::CursorIcon::ZoomOut => 1019, // TYPE_ZOOM_OUT
+        egui::CursorIcon::AllScroll | egui::CursorIcon::Move => 1013, // TYPE_ALL_SCROLL
+        _ => 1000,
+    };
+
+    unsafe {
+        let vm = match jni::JavaVM::from_raw(vm_ptr.cast()) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let mut env = match vm.attach_current_thread() {
+            Ok(e) => e,
+            Err(_) => return,
+        };
         let activity = JObject::from_raw(act_ptr as jni::sys::jobject);
 
-        let pointer_type: i32 = match icon {
-            egui::CursorIcon::Default => 1000, // TYPE_ARROW
-            egui::CursorIcon::PointingHand => 1002, // TYPE_HAND
-            egui::CursorIcon::Text | egui::CursorIcon::VerticalText => 1008, // TYPE_TEXT
-            egui::CursorIcon::Crosshair => 1007, // TYPE_CROSSHAIR
-            egui::CursorIcon::ResizeHorizontal
-            | egui::CursorIcon::ResizeEast
-            | egui::CursorIcon::ResizeWest
-            | egui::CursorIcon::ResizeColumn => 1014, // TYPE_HORIZONTAL_DOUBLE_ARROW
-            egui::CursorIcon::ResizeVertical
-            | egui::CursorIcon::ResizeNorth
-            | egui::CursorIcon::ResizeSouth
-            | egui::CursorIcon::ResizeRow => 1015, // TYPE_VERTICAL_DOUBLE_ARROW
-            egui::CursorIcon::ResizeNorthEast
-            | egui::CursorIcon::ResizeSouthWest
-            | egui::CursorIcon::ResizeNeSw => 1016, // TYPE_TOP_RIGHT_DIAGONAL_DOUBLE_ARROW
-            egui::CursorIcon::ResizeNorthWest
-            | egui::CursorIcon::ResizeSouthEast
-            | egui::CursorIcon::ResizeNwSe => 1017, // TYPE_TOP_LEFT_DIAGONAL_DOUBLE_ARROW
-            egui::CursorIcon::Grab => 1020, // TYPE_GRAB
-            egui::CursorIcon::Grabbing => 1021, // TYPE_GRABBING
-            egui::CursorIcon::NotAllowed | egui::CursorIcon::NoDrop => 1012, // TYPE_NO_DROP
-            egui::CursorIcon::Wait | egui::CursorIcon::Progress => 1004, // TYPE_WAIT
-            egui::CursorIcon::Help => 1003, // TYPE_HELP
-            egui::CursorIcon::Copy => 1011, // TYPE_COPY
-            egui::CursorIcon::ZoomIn => 1018, // TYPE_ZOOM_IN
-            egui::CursorIcon::ZoomOut => 1019, // TYPE_ZOOM_OUT
-            egui::CursorIcon::AllScroll | egui::CursorIcon::Move => 1013, // TYPE_ALL_SCROLL
-            _ => 1000,
-        };
-
-        // Try calling DropHelper.setPointerIcon(activity, pointer_type) on UI thread
-        if let Ok(helper_cls) = env.find_class("ai/storyteller/photocraft/DropHelper") {
+        // Try calling DropHelper.setPointerIcon(activity, pointer_type) using global class ref
+        if !class_ptr.is_null() {
+            let helper_cls = JClass::from_raw(class_ptr as jni::sys::jclass);
             let res = env.call_static_method(
                 &helper_cls,
                 "setPointerIcon",
@@ -637,25 +700,17 @@ pub fn set_android_pointer_icon(icon: egui::CursorIcon) {
         }
         clear_jni_exception(&mut env);
 
-        // Fallback to direct JNI on decorView
-        if let Ok(window_val) = env.call_method(&activity, "getWindow", "()Landroid/view/Window;", &[]) {
-            if let Ok(w) = window_val.l() {
-                if let Ok(decor_val) = env.call_method(&w, "getDecorView", "()Landroid/view/View;", &[]) {
-                    if let Ok(d) = decor_val.l() {
-                        if let Ok(pointer_icon_class) = env.find_class("android/view/PointerIcon") {
-                            if let Ok(icon_val) = env.call_static_method(
-                                pointer_icon_class,
-                                "getSystemIcon",
-                                "(Landroid/content/Context;I)Landroid/view/PointerIcon;",
-                                &[JValue::Object(&activity), JValue::Int(pointer_type)],
-                            ) {
-                                if let Ok(i) = icon_val.l() {
-                                    let _ = env.call_method(&d, "setPointerIcon", "(Landroid/view/PointerIcon;)V", &[JValue::Object(&i)]);
-                                }
-                            }
-                        }
-                    }
-                }
+        // Fallback: check if class is in primary ClassLoader
+        if let Ok(helper_cls) = env.find_class("ai/storyteller/photocraft/DropHelper") {
+            let res = env.call_static_method(
+                &helper_cls,
+                "setPointerIcon",
+                "(Landroid/app/Activity;I)V",
+                &[JValue::Object(&activity), JValue::Int(pointer_type)],
+            );
+            if res.is_ok() {
+                clear_jni_exception(&mut env);
+                return;
             }
         }
         clear_jni_exception(&mut env);
@@ -666,6 +721,7 @@ pub fn set_android_pointer_icon(icon: egui::CursorIcon) {
 pub fn get_window_caption_top_inset() -> f32 {
     let vm_ptr = ANDROID_VM.load(Ordering::SeqCst);
     let act_ptr = ANDROID_ACTIVITY.load(Ordering::SeqCst);
+    let class_ptr = DROP_HELPER_CLASS.load(Ordering::SeqCst);
     if vm_ptr.is_null() || act_ptr.is_null() {
         return 0.0;
     }
@@ -680,6 +736,23 @@ pub fn get_window_caption_top_inset() -> f32 {
             Err(_) => return 0.0,
         };
         let activity = JObject::from_raw(act_ptr as jni::sys::jobject);
+
+        if !class_ptr.is_null() {
+            let helper_cls = JClass::from_raw(class_ptr as jni::sys::jclass);
+            if let Ok(res) = env.call_static_method(
+                &helper_cls,
+                "getCaptionTopInset",
+                "(Landroid/app/Activity;)I",
+                &[JValue::Object(&activity)],
+            ) {
+                let inset = res.i().unwrap_or(0);
+                if inset > 0 {
+                    clear_jni_exception(&mut env);
+                    return inset as f32;
+                }
+            }
+        }
+        clear_jni_exception(&mut env);
 
         if let Ok(helper_cls) = env.find_class("ai/storyteller/photocraft/DropHelper") {
             if let Ok(res) = env.call_static_method(
@@ -1023,6 +1096,44 @@ impl AndroidShell {
         let mut services = Services::default();
         let file_picker = FilePickerState::new();
 
+        services.import = Some(Box::new(|name: &str, bytes: &[u8], opts: &photocraft_io::ImportOptions| {
+            photocraft_io::import_with_options(name, bytes, opts)
+                .map(|r| (r.document, r.warnings))
+                .map_err(|e| e.to_string())
+        }));
+
+        services.export = Some(Box::new(|doc: &photocraft_doc::Document, path: &str, settings: &photocraft_ui_egui::ExportSettings| {
+            let opts = settings.io_options();
+            photocraft_io::export(doc, path, &opts)
+                .map(|r| (r.bytes, r.warnings))
+                .map_err(|e| e.to_string())
+        }));
+
+        services.save_file = Some(std::sync::Arc::new(|doc: &photocraft_doc::Document, path: &str, settings: &photocraft_ui_egui::ExportSettings, ctl: &photocraft_ui_egui::jobs_ui::SaveCtl| {
+            ctl.progress(0.1, "Encoding");
+            let opts = settings.io_options();
+            let r = photocraft_io::export(doc, path, &opts).map_err(|e| e.to_string())?;
+            ctl.commit()?;
+            std::fs::write(path, &r.bytes).map_err(|e| e.to_string())?;
+            Ok(r.warnings)
+        }));
+
+        services.write = Some(Box::new(|path: &str, bytes: &[u8]| {
+            std::fs::write(path, bytes).map_err(|e| e.to_string())
+        }));
+
+        services.file_stamp = Some(Box::new(|path: &str| {
+            let meta = std::fs::metadata(path).ok()?;
+            Some(photocraft_ui_egui::FileStamp {
+                len: meta.len(),
+                modified: meta.modified().ok(),
+            })
+        }));
+
+        services.same_file = Some(Box::new(|a: &str, b: &str| {
+            a == b || std::fs::canonicalize(a).ok() == std::fs::canonicalize(b).ok()
+        }));
+
         let fp_clone = file_picker.clone();
         services.file_dialog = Some(Box::new(move |request, _frame, reply| {
             fp_clone.open_dialog(request, reply);
@@ -1052,13 +1163,16 @@ impl eframe::App for AndroidShell {
         }
 
         self.frames_since_start += 1;
-        if self.frames_since_start == 5 || self.frames_since_start == 30 || self.frames_since_start == 120 {
+        if self.frames_since_start == 1 || self.frames_since_start == 5 || self.frames_since_start == 30 || self.frames_since_start == 120 {
             init_drop_helper_if_needed();
             let top_px = get_window_caption_top_inset();
             if top_px > 0.0 {
                 self.caption_top_inset_points = top_px / ctx.pixels_per_point();
             }
         }
+
+        // Poll dropped files from DropHelper (Google Drive & local Downloads drag & drop)
+        poll_drop_helper();
 
         // Bug 1: Mouse Hover / Cursor Icon changes on Googlebook OS & Android desktop
         let current_cursor = ctx.output(|o| o.cursor_icon);
@@ -1068,7 +1182,7 @@ impl eframe::App for AndroidShell {
         }
 
         // Bug 3: Check for pending file from Android Intent (e.g. clicking .psd file in Files/Drive)
-        if self.frames_since_start % 30 == 0 || self.frames_since_start == 2 {
+        if self.frames_since_start % 20 == 0 || self.frames_since_start == 2 {
             if let Some(uri_str) = check_and_clear_activity_intent() {
                 log::info!("Discovered file from Android Intent: {uri_str}");
                 if let Some((name, bytes)) = read_content_or_file_uri(&uri_str) {
@@ -1217,6 +1331,13 @@ impl eframe::App for AndroidShell {
             data.zoom_factor = self.zoom_factor;
             data.permissions_requested = storage_granted;
             self.state = AndroidState::Onboarding(data);
+        }
+
+        // Bug 1: Update mouse hover pointer icon right after UI evaluation
+        let current_cursor = ctx.output(|o| o.cursor_icon);
+        if current_cursor != self.last_cursor_icon {
+            set_android_pointer_icon(current_cursor);
+            self.last_cursor_icon = current_cursor;
         }
     }
 }

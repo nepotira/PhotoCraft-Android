@@ -1,7 +1,7 @@
 [package]
 name = "photocraft-android"
-description = "PhotoCraft Android & Googlebook OS v0.1.5 (based on upstream v0.17.0) by Nepo"
-version = "0.1.5"
+description = "PhotoCraft Android & Googlebook OS v0.1.6 (based on upstream v0.17.0) by Nepo"
+version = "0.1.6"
 edition.workspace = true
 license.workspace = true
 publish = false
@@ -47,16 +47,54 @@ mime_type = "application/photoshop"
 [[package.metadata.android.application.activity.intent_filter.data]]
 mime_type = "image/psd"
 [[package.metadata.android.application.activity.intent_filter.data]]
+mime_type = "image/x-psd"
+[[package.metadata.android.application.activity.intent_filter.data]]
+mime_type = "image/png"
+[[package.metadata.android.application.activity.intent_filter.data]]
+mime_type = "image/jpeg"
+[[package.metadata.android.application.activity.intent_filter.data]]
+mime_type = "image/webp"
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW", "android.intent.action.EDIT"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"]
+
+[[package.metadata.android.application.activity.intent_filter.data]]
 scheme = "content"
+mime_type = "application/octet-stream"
 path_pattern = ".*\\.psd"
 [[package.metadata.android.application.activity.intent_filter.data]]
-scheme = "file"
-path_pattern = ".*\\.psd"
-[[package.metadata.android.application.activity.intent_filter.data]]
 scheme = "content"
+mime_type = "application/octet-stream"
 path_pattern = ".*\\.PSD"
 [[package.metadata.android.application.activity.intent_filter.data]]
 scheme = "file"
+mime_type = "application/octet-stream"
+path_pattern = ".*\\.psd"
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "file"
+mime_type = "application/octet-stream"
+path_pattern = ".*\\.PSD"
+
+[[package.metadata.android.application.activity.intent_filter]]
+actions = ["android.intent.action.VIEW", "android.intent.action.EDIT"]
+categories = ["android.intent.category.DEFAULT", "android.intent.category.BROWSABLE"]
+
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "content"
+mime_type = "*/*"
+path_pattern = ".*\\.psd"
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "content"
+mime_type = "*/*"
+path_pattern = ".*\\.PSD"
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "file"
+mime_type = "*/*"
+path_pattern = ".*\\.psd"
+[[package.metadata.android.application.activity.intent_filter.data]]
+scheme = "file"
+mime_type = "*/*"
 path_pattern = ".*\\.PSD"
 
 [package.metadata.android.sdk]

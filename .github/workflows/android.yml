@@ -88,17 +88,25 @@ jobs:
             -d /tmp/drop_classes
           "$D8_TOOL" /tmp/drop_classes/ai/storyteller/photocraft/*.class \
             --output apps/photocraft-android/assets/
+          cp apps/photocraft-android/assets/classes.dex /tmp/classes.dex
           ls -la apps/photocraft-android/assets/
 
       - name: Build PhotoCraft APK (ARM64 & x86_64)
         run: |
           mkdir -p build-artifacts
+          APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | sort -V | tail -n 1)
+          echo "Using apksigner: $APKSIGNER"
+
           echo "Compiling ARM64 APK for mobile devices and tablets..."
           cargo apk build --package photocraft-android --release --target aarch64-linux-android
+          (cd /tmp && zip -u "$GITHUB_WORKSPACE/target/release/apk/photocraft-android.apk" classes.dex) || true
+          "$APKSIGNER" sign --ks apps/photocraft-android/release.keystore --ks-pass pass:android --key-pass pass:android target/release/apk/photocraft-android.apk || true
           cp target/release/apk/photocraft-android.apk build-artifacts/PhotoCraft-Android-arm64-v8a.apk
 
           echo "Compiling x86_64 APK for Chromebooks / Googlebook OS..."
           cargo apk build --package photocraft-android --release --target x86_64-linux-android
+          (cd /tmp && zip -u "$GITHUB_WORKSPACE/target/release/apk/photocraft-android.apk" classes.dex) || true
+          "$APKSIGNER" sign --ks apps/photocraft-android/release.keystore --ks-pass pass:android --key-pass pass:android target/release/apk/photocraft-android.apk || true
           cp target/release/apk/photocraft-android.apk build-artifacts/PhotoCraft-Android-x86_64.apk
 
       - name: List Output Files

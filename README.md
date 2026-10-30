@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/nepotira/PhotoCraft-Android/releases"><img alt="Android Version" src="https://img.shields.io/badge/Android%20Edition-v0.1.5--android-34A853?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="https://github.com/nepotira/PhotoCraft-Android/releases"><img alt="Android Version" src="https://img.shields.io/badge/Android%20Edition-v0.1.6--android-34A853?style=for-the-badge&logo=android&logoColor=white"></a>
   <a href="https://github.com/storytold/photocraft"><img alt="Upstream Base" src="https://img.shields.io/badge/Upstream%20Base-PhotoCraft%20v0.17.0-FF9900?style=for-the-badge&logo=github"></a>
   <img alt="100% Rust" src="https://img.shields.io/badge/100%25-Rust-b7410e?style=for-the-badge&logo=rust">
   <img alt="Samsung DeX Ready" src="https://img.shields.io/badge/Samsung%20DeX-Compat%C3%ADvel-1428A0?style=for-the-badge">
