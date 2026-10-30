@@ -1,7 +1,7 @@
 [package]
 name = "photocraft-android"
-description = "PhotoCraft Android & Googlebook OS v0.1.7 (based on upstream v0.17.0) by Nepo"
-version = "0.1.7"
+description = "PhotoCraft Android & Googlebook OS v0.1.8 (pure desktop experience) by Nepo"
+version = "0.1.8"
 edition.workspace = true
 license.workspace = true
 publish = false

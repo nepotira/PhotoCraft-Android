@@ -791,15 +791,6 @@ fn handle_primary_canvas_input(app: &mut PhotocraftApp, ui: &mut egui::Ui, view:
     crate::paint_mouse::sync_tool_brush(app);
     let mut buttons = crate::paint_mouse::canvas_buttons(app, response, tool);
 
-    // Multi-touch gestures (two-finger pinch to zoom, pan & rotate) suppress single-pointer tools:
-    let is_multi_touch = ctx.input(|i| i.multi_touch()).as_ref().is_some_and(|m| m.num_touches >= 2);
-    if is_multi_touch {
-        buttons.started = false;
-        buttons.dragged = false;
-        buttons.stopped = false;
-        buttons.clicked = false;
-        return;
-    }
 
     // The Crop tool's frame is edited from the press (before egui's drag threshold), so the
     // pixels past the canvas show at once, as in Photoshop.
@@ -1864,36 +1855,6 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let bars_id = egui::Id::unique(("pc-canvas-bars-hover", idx));
     update_canvas_navigation(app, &mut view, CanvasNavigationInput { ctx: &ctx, response: &response, free_hover, wheel_owner, xf, ppp, idx });
 
-    // Multi-touch gestures (two-finger pinch to zoom, pan & rotate canvas, IbisPaint style):
-    let multi_touch = ctx.input(|i| i.multi_touch());
-    let is_multi_touch = multi_touch.as_ref().is_some_and(|m| m.num_touches >= 2);
-    if let Some(ref touch) = multi_touch {
-        if touch.num_touches >= 2 {
-            if app.drag.is_some() {
-                app.drag = None;
-                app.press_stroke = false;
-            }
-
-            if touch.translation_delta != egui::Vec2::ZERO {
-                let d = xf.unmap_vec(touch.translation_delta) / (view.zoom / ppp);
-                view.center[0] -= d.x;
-                view.center[1] -= d.y;
-            }
-
-            if touch.zoom_delta > 0.0 && (touch.zoom_delta - 1.0).abs() > 0.005 {
-                let nz = crate::zoom_levels::clamp(view.zoom * touch.zoom_delta, view.doc_size);
-                if nz != view.zoom {
-                    let at = wheel_anchor(&xf, touch.center_pos, view.doc_size);
-                    zoom_about(&mut view, &xf, at, nz, false, ppp);
-                }
-            }
-
-            if touch.rotation_delta.is_finite() && touch.rotation_delta.abs() > 0.005 {
-                let deg = touch.rotation_delta.to_degrees();
-                view.rotation = crate::rotate_view::wrap_deg(view.rotation + deg);
-            }
-        }
-    }
 
     // Pen pressure/tilt for this frame's tool events (mouse = 1.0), unless Preferences › Tools ›
     // Use Tablet Pressure is off; the pen's eraser end selects the Eraser.

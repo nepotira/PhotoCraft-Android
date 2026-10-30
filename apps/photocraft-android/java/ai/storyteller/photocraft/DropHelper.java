@@ -115,32 +115,20 @@ public class DropHelper {
                         }
                     };
 
-                    View.OnHoverListener hoverListener = new View.OnHoverListener() {
-                        @Override
-                        public boolean onHover(View v, MotionEvent event) {
-                            if (sCurrentPointerIcon != null) {
-                                try {
-                                    v.setPointerIcon(sCurrentPointerIcon);
-                                } catch (Throwable ignored) {}
-                            }
-                            return false;
-                        }
-                    };
-
                     View decor = activity.getWindow().getDecorView();
                     if (decor != null) {
                         decor.setFocusable(true);
                         decor.setFocusableInTouchMode(true);
                         decor.requestFocus();
                         decor.setOnDragListener(dragListener);
-                        decor.setOnHoverListener(hoverListener);
+                        decor.setOnHoverListener(sHoverListener);
                     }
                     View content = activity.findViewById(android.R.id.content);
                     if (content != null) {
                         content.setFocusable(true);
                         content.setFocusableInTouchMode(true);
                         content.setOnDragListener(dragListener);
-                        content.setOnHoverListener(hoverListener);
+                        content.setOnHoverListener(sHoverListener);
                     }
                     Log.i(TAG, "DropHelper attached successfully to decorView and contentView");
                 } catch (Throwable t) {
@@ -150,10 +138,23 @@ public class DropHelper {
         });
     }
 
+    private static final View.OnHoverListener sHoverListener = new View.OnHoverListener() {
+        @Override
+        public boolean onHover(View v, MotionEvent event) {
+            if (sCurrentPointerIcon != null) {
+                try {
+                    v.setPointerIcon(sCurrentPointerIcon);
+                } catch (Throwable ignored) {}
+            }
+            return false;
+        }
+    };
+
     public static void applyPointerIconRecursively(View view, PointerIcon icon) {
         if (view == null || icon == null) return;
         try {
             view.setPointerIcon(icon);
+            view.setOnHoverListener(sHoverListener);
         } catch (Throwable ignored) {}
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;

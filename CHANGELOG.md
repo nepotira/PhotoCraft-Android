@@ -4,6 +4,32 @@ Todas as alterações notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue as diretrizes do [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [0.1.8-android] - 2026-10-30 (Build 10)
+*Base Upstream: PhotoCraft v0.17.0 (Sincronizado)*
+
+### 🚀 Transição para Experiência Desktop Pura & Remoção de Conflitos Touch
+- **Foco Absoluto em Modo Desktop (Googlebook OS / Samsung DeX / PC Android)**:
+  - Todas as funções experimentais de adaptação touch para telas pequenas de smartphones foram removidas do branch de produção e preservadas com segurança na branch dedicada `backup/mobile-touch-adaptations` no GitHub.
+  - A barra mobile superior artificial (`android_mobile_bar`) com botões de zoom e assistente foi desativada, restaurando a área de trabalho limpa e o espaço vertical nativo do PhotoCraft desktop.
+  - O espaçamento tátil inflado (`interact_size = (32, 32)` e `interact_radius = 8.0`) foi revertido para os padrões de precisão de desktop (mouse & cursor).
+  - Inicialização direta no editor para usuários com permissão de armazenamento já concedida, eliminando tela de onboarding redundante.
+
+### 🛠️ Correções de Erros & Aprimoramentos Críticos (Bug Fixes)
+- **[BUG-032] / [FIX-032] Correção do Quadro Branco Bugado e Conflito de Gestos Touch com Navegação de Mouse**:
+  - *Sintoma*: A região do quadro branco ficou extremamente instável/bugada e a rolagem/panning via mouse e botões continuava falhando.
+  - *Causa Raiz*: O bloco de detecção de gestos multi-touch inserido no `crates/ui-egui/src/canvas.rs` (`is_multi_touch`) interceptava os eventos de ponteiro no canvas e zerava forçadamente as flags `buttons.started`, `buttons.dragged` e `buttons.clicked`. No Googlebook OS e em touchpads avançados de laptop, o sistema operacional reporta eventos de ponteiro que ativavam o cancelamento do multi-touch, impedindo o mouse de navegar e causando comportamentos anômalos no canvas.
+  - *Solução*: Removida a supressão artificial de multi-touch no canvas. A navegação de tela agora usa 100% o pipeline comprovado de desktop do Photoshop: rolagem com roda do mouse (vertical e horizontal com Shift/Cmd), botão do meio do mouse, `Espaço + Arrastar` (ferramenta Mão temporária) e roda com Alt para zoom.
+- **[BUG-033] / [FIX-033] Correção do Atalho Ctrl+Z Ativando a Ferramenta de Zoom (Z)**:
+  - *Sintoma*: Pressionar `Ctrl + Z` no teclado físico selecionava a ferramenta de Zoom (Z) em vez de executar o comando Desfazer (Undo).
+  - *Causa Raiz*: No Android / `winit`, quando uma tecla modificadora física (como Ctrl ou Command) é mantida pressionada junto a uma letra (como Z), o driver NDK/winit pode emitir o evento `Event::Key { key: Key::Z }` com `modifiers.ctrl = false` e `modifiers.command = false` caso o meta-state do Android não seja propagado no exato instante do caractere. Como `modifiers.ctrl` chegava como falso, o despachador de atalhos ignorava o comando `edit.undo` e caía no despachador de ferramentas de tecla única (`shortcuts::select_tool_by_key`), onde a tecla `Z` seleciona imediatamente a ferramenta de Zoom (`Tool::Zoom`).
+  - *Solução*: Implementado o `ModifierTracker` no `AndroidShell::raw_input_hook`. O rastreador monitora continuamente os eventos de pressionar/soltar de `Key::Control`, `Key::Shift`, `Key::Alt` e `Key::Command`. Quando `Ctrl` está fisicamente pressionado, as flags `raw_input.modifiers.ctrl` e `raw_input.modifiers.command` são asseguradas em 100% dos eventos `Key`, `PointerButton` e `MouseWheel`. Com isso, `Ctrl + Z` sempre dispara `edit.undo` com prioridade máxima e nunca seleciona a ferramenta de Zoom.
+- **[BUG-034] / [FIX-034] Sincronização Precisa do Cursor do Mouse no Final do Frame (`on_end_pass`)**:
+  - *Sintoma*: O ícone da seta do mouse continuava sem mudar ao passar o mouse por cima dos elementos.
+  - *Causa Raiz*: (1) A leitura de `ctx.output(|o| o.cursor_icon)` ocorria no início ou meio da passagem de renderização, antes de todos os widgets e áreas interativas (como botões, janelas, textos e áreas redimensionáveis) registrarem suas solicitações de cursor no frame; (2) O `sHoverListener` no Java era reinstanciado e não se aplicava de forma permanente a todas as subviews criadas dinamicamente.
+  - *Solução*: (a) Registrado hook oficial `on_end_pass("photocraft_android_cursor_sync")` no egui Context, que é invocado estritamente após todas as views terem atualizado seu estado de hover; (b) No `DropHelper.java`, tornado o `sHoverListener` estático e vinculado a cada view filha durante a travessia recursiva; (c) Despacho imediato para `setPointerIcon` garantindo que o ponteiro do sistema operacional Googlebook OS reflita com perfeição cada elemento interativo.
+
+---
+
 ## [0.1.7-android] - 2026-10-30 (Build 9)
 *Base Upstream: PhotoCraft v0.17.0 (Sincronizado)*
 

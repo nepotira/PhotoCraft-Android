@@ -1079,6 +1079,14 @@ pub fn open_app_storage_settings() {
     }
 }
 
+#[derive(Default, Clone, Copy)]
+struct ModifierTracker {
+    ctrl: bool,
+    shift: bool,
+    alt: bool,
+    meta: bool,
+}
+
 enum AndroidState {
     Onboarding(OnboardingData),
     Running(Box<PhotocraftApp>),
@@ -1096,15 +1104,12 @@ struct AndroidShell {
     last_cursor_icon: egui::CursorIcon,
     caption_top_inset_points: f32,
     manual_top_offset: f32,
+    mod_tracker: ModifierTracker,
 }
 
 impl AndroidShell {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         PhotocraftApp::setup_context(&cc.egui_ctx, ThemeKind::Pro);
-        cc.egui_ctx.global_style_mut(|s| {
-            s.spacing.interact_size = egui::vec2(32.0, 32.0);
-            s.interaction.interact_radius = 8.0;
-        });
 
         let session = photocraft_engine::Session::default();
         let mut services = Services::default();
@@ -1153,18 +1158,31 @@ impl AndroidShell {
             fp_clone.open_dialog(request, reply);
         }));
 
+        let (state, session_opt, services_opt) = if has_storage_permission() {
+            let mut app = PhotocraftApp::new(session, services);
+            app.background_jobs = true;
+            app.set_theme(&cc.egui_ctx, ThemeKind::Pro);
+            if let Some(rs) = cc.wgpu_render_state.clone() {
+                app.set_wgpu(rs);
+            }
+            (AndroidState::Running(Box::new(app)), None, None)
+        } else {
+            (AndroidState::Onboarding(OnboardingData::default()), Some(session), Some(services))
+        };
+
         Self {
-            state: AndroidState::Onboarding(OnboardingData::default()),
+            state,
             zoom_factor: 1.0,
             last_applied_zoom: 1.0,
-            session: Some(session),
-            services: Some(services),
+            session: session_opt,
+            services: services_opt,
             file_picker,
             wgpu_state: cc.wgpu_render_state.clone(),
             frames_since_start: 0,
             last_cursor_icon: egui::CursorIcon::Default,
             caption_top_inset_points: 0.0,
             manual_top_offset: 0.0,
+            mod_tracker: ModifierTracker::default(),
         }
     }
 }
@@ -1254,8 +1272,58 @@ impl eframe::App for AndroidShell {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        // Fold trackpad pinch gestures on Chromebook / Googlebook OS
-        photocraft_ui_egui::canvas::wheel_nav::fold_legacy_pinch(ctx, raw_input);
+        // Track physical keyboard modifier state across Android winit events
+        for ev in &raw_input.events {
+            if let egui::Event::Key { key, pressed, .. } = ev {
+                match key {
+                    egui::Key::Control => self.mod_tracker.ctrl = *pressed,
+                    egui::Key::Shift => self.mod_tracker.shift = *pressed,
+                    egui::Key::Alt => self.mod_tracker.alt = *pressed,
+                    egui::Key::Command => self.mod_tracker.meta = *pressed,
+                    _ => {}
+                }
+            }
+        }
+
+        // Synchronize and enrich raw_input modifiers if held
+        if self.mod_tracker.ctrl {
+            raw_input.modifiers.ctrl = true;
+            raw_input.modifiers.command = true;
+        }
+        if self.mod_tracker.shift {
+            raw_input.modifiers.shift = true;
+        }
+        if self.mod_tracker.alt {
+            raw_input.modifiers.alt = true;
+        }
+        if self.mod_tracker.meta {
+            raw_input.modifiers.mac_cmd = true;
+        }
+
+        // Ensure every Key, Pointer, and Wheel event carries the active modifiers
+        for ev in &mut raw_input.events {
+            match ev {
+                egui::Event::Key { modifiers, .. }
+                | egui::Event::PointerButton { modifiers, .. }
+                | egui::Event::MouseWheel { modifiers, .. } => {
+                    if self.mod_tracker.ctrl {
+                        modifiers.ctrl = true;
+                        modifiers.command = true;
+                    }
+                    if self.mod_tracker.shift {
+                        modifiers.shift = true;
+                    }
+                    if self.mod_tracker.alt {
+                        modifiers.alt = true;
+                    }
+                    if self.mod_tracker.meta {
+                        modifiers.mac_cmd = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+
         if let AndroidState::Running(app) = &mut self.state {
             app.raw_input_hook(ctx, raw_input);
         }
@@ -1264,9 +1332,26 @@ impl eframe::App for AndroidShell {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let mut finish_onboarding = false;
-        let mut switch_to_onboarding = false;
 
         let storage_granted = has_storage_permission();
+
+        // Install end_pass hook to capture cursor icon changes at the exact end of every pass
+        let installed = egui::Id::unique("photocraft_android_cursor_hook");
+        if !ctx.data(|d| d.get_temp::<bool>(installed)).unwrap_or(false) {
+            ctx.data_mut(|d| d.insert_temp(installed, true));
+            ctx.on_end_pass(
+                "photocraft_android_cursor_sync",
+                std::sync::Arc::new(|ui| {
+                    let icon = ui.ctx().output(|o| o.cursor_icon);
+                    let last_id = egui::Id::unique("photocraft_android_last_cursor_icon");
+                    let last = ui.ctx().data(|d| d.get_temp::<egui::CursorIcon>(last_id)).unwrap_or(egui::CursorIcon::Default);
+                    if icon != last {
+                        ui.ctx().data_mut(|d| d.insert_temp(last_id, icon));
+                        set_android_pointer_icon(icon);
+                    }
+                }),
+            );
+        }
 
         // Bug 6: Inset spacer to prevent Googlebook OS system window caption bar from covering PhotoCraft
         let total_top_offset = (self.caption_top_inset_points + self.manual_top_offset).max(0.0);
@@ -1298,44 +1383,6 @@ impl eframe::App for AndroidShell {
                 }
             }
             AndroidState::Running(app) => {
-                // BUG-028/FIX-028: Dispatch keyboard shortcuts (Ctrl+Z, Undo, Redo, Space pan, Tools) in UI pass
-                photocraft_ui_egui::shortcuts::handle(app, ui.ctx());
-
-                let mut zoom_delta = 0.0;
-                let current_zoom = self.zoom_factor;
-
-                egui::Panel::top("android_mobile_bar").show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("PhotoCraft").small().strong());
-                        ui.separator();
-                        ui.label(egui::RichText::new("Zoom:").small());
-                        if ui.button("➖").clicked() && current_zoom > 0.6 {
-                            zoom_delta -= 0.05;
-                        }
-                        ui.label(egui::RichText::new(format!("{:.0}%", current_zoom * 100.0)).small());
-                        if ui.button("➕").clicked() && current_zoom < 1.5 {
-                            zoom_delta += 0.05;
-                        }
-                        ui.separator();
-                        ui.label(egui::RichText::new("Barra:").small());
-                        if ui.button("➖").clicked() {
-                            self.manual_top_offset = (self.manual_top_offset - 4.0).max(-40.0);
-                        }
-                        ui.label(egui::RichText::new(format!("{:.0}pt", total_top_offset)).small());
-                        if ui.button("➕").clicked() {
-                            self.manual_top_offset = (self.manual_top_offset + 4.0).min(100.0);
-                        }
-                        ui.separator();
-                        if ui.button(egui::RichText::new("Assistente").small()).clicked() {
-                            switch_to_onboarding = true;
-                        }
-                    });
-                });
-
-                if zoom_delta != 0.0 {
-                    self.zoom_factor = (self.zoom_factor + zoom_delta).clamp(0.6, 1.5);
-                }
-
                 app.ui(ui, frame);
             }
         }
@@ -1353,11 +1400,6 @@ impl eframe::App for AndroidShell {
                 app.set_wgpu(rs);
             }
             self.state = AndroidState::Running(Box::new(app));
-        } else if switch_to_onboarding {
-            let mut data = OnboardingData::default();
-            data.zoom_factor = self.zoom_factor;
-            data.permissions_requested = storage_granted;
-            self.state = AndroidState::Onboarding(data);
         }
 
         // Bug 1: Update mouse hover pointer icon right after UI evaluation
@@ -1379,7 +1421,7 @@ fn android_main(app: AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
 
-    log::info!("PhotoCraft Android & Googlebook OS v0.1.7 starting up");
+    log::info!("PhotoCraft Android & Googlebook OS v0.1.8 starting up");
 
     ANDROID_VM.store(app.vm_as_ptr(), Ordering::SeqCst);
     ANDROID_ACTIVITY.store(app.activity_as_ptr(), Ordering::SeqCst);
