@@ -236,16 +236,21 @@ pub fn dispatch_pressed(app: &mut PhotocraftApp, ctx: &egui::Context, focus: Foc
         bindings(app).into_iter().filter(|(id, sc)| focus.allows(sc) && !(editing && TEXT_OWNED.contains(&id.as_str()))).collect();
     let command = |e: &egui::Event| match e {
         egui::Event::Key { key, physical_key, pressed: true, modifiers, .. } => {
+            let mut eff_mods = *modifiers;
+            if cfg!(target_os = "android") && (eff_mods.ctrl || eff_mods.command) {
+                eff_mods.ctrl = true;
+                eff_mods.command = true;
+            }
             let by_position = physical_key
                 .filter(|p| POSITIONAL.contains(p))
-                .and_then(|p| table.iter().find(|(_, sc)| sc.modifiers.command && sc.logical_key == p && key_matches(sc, p, *modifiers)));
+                .and_then(|p| table.iter().find(|(_, sc)| sc.modifiers.command && sc.logical_key == p && key_matches(sc, p, eff_mods)));
             let bound =
-                by_position.or_else(|| table.iter().find(|(_, sc)| key_matches(sc, *key, *modifiers))).map(|(id, _)| (id.clone(), *key == Key::Tab, false));
+                by_position.or_else(|| table.iter().find(|(_, sc)| key_matches(sc, *key, eff_mods))).map(|(id, _)| (id.clone(), *key == Key::Tab, false));
             // Photoshop: ⌥ added to an adjustment's own key opens it at its last settings (⌥⌘L,
             // ⌥⌘M, #8900), unless that key is bound to something else.
             bound.or_else(|| {
-                let plain = egui::Modifiers { alt: false, ..*modifiers };
-                let last = modifiers.alt.then(|| table.iter().find(|(id, sc)| crate::adjust_dialog::has_dialog(id) && key_matches(sc, *key, plain))).flatten();
+                let plain = egui::Modifiers { alt: false, ..eff_mods };
+                let last = eff_mods.alt.then(|| table.iter().find(|(id, sc)| crate::adjust_dialog::has_dialog(id) && key_matches(sc, *key, plain))).flatten();
                 last.map(|(id, _)| (id.clone(), false, true))
             })
         }

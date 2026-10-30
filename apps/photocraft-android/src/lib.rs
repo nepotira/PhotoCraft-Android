@@ -1079,14 +1079,6 @@ pub fn open_app_storage_settings() {
     }
 }
 
-#[derive(Default, Clone, Copy)]
-struct ModifierTracker {
-    ctrl: bool,
-    shift: bool,
-    alt: bool,
-    meta: bool,
-}
-
 enum AndroidState {
     Onboarding(OnboardingData),
     Running(Box<PhotocraftApp>),
@@ -1104,7 +1096,6 @@ struct AndroidShell {
     last_cursor_icon: egui::CursorIcon,
     caption_top_inset_points: f32,
     manual_top_offset: f32,
-    mod_tracker: ModifierTracker,
 }
 
 impl AndroidShell {
@@ -1182,7 +1173,6 @@ impl AndroidShell {
             last_cursor_icon: egui::CursorIcon::Default,
             caption_top_inset_points: 0.0,
             manual_top_offset: 0.0,
-            mod_tracker: ModifierTracker::default(),
         }
     }
 }
@@ -1272,52 +1262,19 @@ impl eframe::App for AndroidShell {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        // Track physical keyboard modifier state across Android winit events
-        for ev in &raw_input.events {
-            if let egui::Event::Key { key, pressed, .. } = ev {
-                match key {
-                    egui::Key::Control => self.mod_tracker.ctrl = *pressed,
-                    egui::Key::Shift => self.mod_tracker.shift = *pressed,
-                    egui::Key::Alt => self.mod_tracker.alt = *pressed,
-                    egui::Key::Command => self.mod_tracker.meta = *pressed,
-                    _ => {}
-                }
-            }
-        }
+        // Fold trackpad pinch gestures on Chromebook / Googlebook OS
+        photocraft_ui_egui::canvas::wheel_nav::fold_legacy_pinch(ctx, raw_input);
 
-        // Synchronize and enrich raw_input modifiers if held
-        if self.mod_tracker.ctrl {
-            raw_input.modifiers.ctrl = true;
-            raw_input.modifiers.command = true;
-        }
-        if self.mod_tracker.shift {
-            raw_input.modifiers.shift = true;
-        }
-        if self.mod_tracker.alt {
-            raw_input.modifiers.alt = true;
-        }
-        if self.mod_tracker.meta {
-            raw_input.modifiers.mac_cmd = true;
-        }
-
-        // Ensure every Key, Pointer, and Wheel event carries the active modifiers
+        // Ensure key and pointer events on Android with Ctrl or Command modifier have both flags set
         for ev in &mut raw_input.events {
             match ev {
                 egui::Event::Key { modifiers, .. }
                 | egui::Event::PointerButton { modifiers, .. }
-                | egui::Event::MouseWheel { modifiers, .. } => {
-                    if self.mod_tracker.ctrl {
+                | egui::Event::MouseWheel { modifiers, .. }
+                | egui::Event::ModifiersChanged(modifiers) => {
+                    if modifiers.ctrl || modifiers.command {
                         modifiers.ctrl = true;
                         modifiers.command = true;
-                    }
-                    if self.mod_tracker.shift {
-                        modifiers.shift = true;
-                    }
-                    if self.mod_tracker.alt {
-                        modifiers.alt = true;
-                    }
-                    if self.mod_tracker.meta {
-                        modifiers.mac_cmd = true;
                     }
                 }
                 _ => {}
